@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.agent import router as agent_router
+import uvicorn
 
 app = FastAPI(title="Agent API", version="1.0.0")
 
@@ -23,3 +24,8 @@ def root():
 @app.get("/ping")
 def ping():
     return {"message": "Hello from FastAPI!"}
+
+
+if __name__ == "__main__":
+    # 通过代码启动 FastAPI 服务
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
