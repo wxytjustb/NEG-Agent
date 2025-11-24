@@ -1,0 +1,10 @@
+{
+  "publicComponents": {},
+  "pages": {
+    "index": "pages/index/index"
+  },
+  "publicPages": {
+    "index": "pages/index/index"
+  },
+  "main": "index.js"
+}

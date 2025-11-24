@@ -1,0 +1,53 @@
+<!--plugin/pages/hello-page.wxml-->
+<view class="wx-page" style="--status: {{statusBarHeight}}px;">
+  <view class="wx-header" style="padding-top: {{statusBarHeight}}px;">
+    <view class="wx-header-bar">
+      <view class="wx-back" bindtap="goBack">
+        <text class="icon-back">‹</text>
+      </view>
+      <text class="wx-title">AI助手</text>
+      <view class="wx-more">
+        <text class="icon-more">⋯</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="wx-content">
+    <scroll-view class="wx-scroll" scroll-y scroll-with-animation scroll-into-view="{{lastId}}">
+      <view wx:for="{{messages}}" wx:key="index" id="msg-{{index}}" class="wx-msg {{item.type}}">
+        <view class="wx-bubble {{item.type}}">
+          <view wx:if="{{isLoading && item.type==='other' && index===messages.length-1 && (!item.text || item.text==='')}}" class="wx-typing">
+            <view class="dot"></view>
+            <view class="dot"></view>
+            <view class="dot"></view>
+          </view>
+          <text wx:else class="wx-text">{{item.text}}</text>
+        </view>
+      </view>
+    </scroll-view>
+  </view>
+
+  <view class="wx-input" style="bottom: {{keyboardHeight}}px;">
+    <textarea 
+      class="wx-textarea" 
+      value="{{input}}" 
+      bindinput="onInput"
+      placeholder="发送消息"
+      auto-height="{{true}}"
+      show-confirm-bar="{{false}}"
+      adjust-position="{{false}}"
+      cursor-spacing="12"
+      maxlength="600"
+      disabled="{{isLoading}}"
+    />
+    <view class="wx-right">
+      <button 
+        class="wx-send {{input && !isLoading ? '' : 'disabled'}}" 
+        disabled="{{!input || isLoading}}" 
+        bindtap="send"
+      >
+        {{isLoading ? '加载中...' : '发送'}}
+      </button>
+    </view>
+  </view>
+</view>

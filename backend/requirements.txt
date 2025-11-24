@@ -1,0 +1,31 @@
+# fastapi 配置
+fastapi==0.121.2
+# annotated-doc==0.0.4
+# annotated-types==0.7.0
+# anyio==4.11.0
+# click==8.3.1
+# colorama==0.4.6
+# h11==0.16.0
+# idna==3.11
+# pydantic==2.12.4
+# pydantic-core==2.41.5
+# sniffio==1.3.1
+# starlette==0.49.3
+# typing-extensions==4.15.0
+# typing-inspection==0.4.2
+# uvicorn==0.38.0
+fastapi-cors==0.0.6 
+# environs==14.5.0 
+# marshmallow==4.1.0 
+# python-dotenv==1.2.1
+
+uvicorn==0.38.0
+pydantic-settings==2.10.1
+python-dotenv==1.2.1
+
+# LangChain
+langchain==1.0.8
+langchain-openai==1.0.3
+langchain-community==0.4.1
+langchain_ollama==1.0.0 
+ollama==0.6.1
