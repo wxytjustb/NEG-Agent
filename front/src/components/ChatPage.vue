@@ -8,7 +8,9 @@
         </svg>
       </button>
       <h1 class="chat-title">{{ title }}</h1>
-      <div class="placeholder"></div>
+      <div class="provider-toggle">
+        <button class="provider-btn" @click="toggleProvider">{{ currentProviderLabel }}</button>
+      </div>
     </div>
 
     <!-- 消息列表 -->
@@ -59,6 +61,11 @@ import { ref, computed, nextTick, onMounted } from 'vue';
 import { chatStream, type ChatMessage } from '../api/agent';
 
 const title = ref('AI 助手');
+const provider = ref<'ollama' | 'deepseek'>('ollama');
+const currentProviderLabel = computed(() => provider.value === 'ollama' ? 'Ollama' : 'DeepSeek');
+const toggleProvider = () => {
+  provider.value = provider.value === 'ollama' ? 'deepseek' : 'ollama';
+};
 const inputText = ref('');
 const isLoading = ref(false);
 const messagesContainer = ref<HTMLElement | null>(null);
@@ -126,7 +133,7 @@ const handleSend = async () => {
     await chatStream(
       {
         messages: chatHistory,
-        provider: 'ollama',
+        provider: provider.value,
         temperature: 0.7,
         max_tokens: 2000,
         stream: true
@@ -224,8 +231,22 @@ onMounted(() => {
   color: #333;
 }
 
-.placeholder {
-  width: 40px;
+.provider-toggle {
+  display: flex;
+  align-items: center;
+}
+
+.provider-btn {
+  padding: 6px 10px;
+  border: 1px solid #e5e5e5;
+  background: #fff;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.provider-btn:hover {
+  background: #f0f0f0;
 }
 
 /* 消息列表 */
