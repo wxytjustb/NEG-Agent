@@ -39,6 +39,17 @@ class Settings(BaseSettings):
     
     # LLM 提供商选择: 'deepseek' 或 'ollama'
     LLM_PROVIDER: str = "ollama"
+
+    # Golang Server Auth Configuration
+    GOLANG_API_BASE_URL: str = "https://app-api.roky.work"
+    GOLANG_VERIFY_ENDPOINT: str = "/open-api/auth/verify-app-user"
+
+    # Redis Configuration
+    REDIS_HOST: str = "localhost"
+    REDIS_PORT: int = 6379
+    REDIS_DB: int = 0
+    REDIS_PASSWORD: Optional[str] = None
+    REDIS_TTL: int = 300  # 5 minutes
     
     class Config:
         env_file = ".env"

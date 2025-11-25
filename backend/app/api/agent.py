@@ -1,8 +1,9 @@
 # 智能体接口 - Agent API
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from app.schemas.agent_schema import AgentChatRequest
 from app.services.agent_service import agent_service
+from app.core.security import get_current_user
 import logging
 
 logger = logging.getLogger(__name__)
@@ -11,7 +12,7 @@ router = APIRouter(prefix="/api/agent", tags=["Agent"])
 
 
 @router.post("/chat", summary="流式对话接口")
-async def chat(request: AgentChatRequest):
+async def chat(request: AgentChatRequest, user: dict = Depends(get_current_user)):
     """
     Agent 流式对话接口 - SSE 流式输出
     
@@ -31,6 +32,7 @@ async def chat(request: AgentChatRequest):
         # 将 Pydantic 模型转换为字典
         messages = [msg.model_dump() for msg in request.messages]
         logger.info(f"=== 接收到流式请求 ===")
+        logger.info(f"用户: {user.get('username', 'Unknown')} (ID: {user.get('id', 'Unknown')})")
         logger.info(f"消息数量: {len(messages)}, provider={request.provider}")
 
         # SSE 流式输出生成器
