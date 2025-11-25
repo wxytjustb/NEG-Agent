@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.api.agent import router as agent_router
-from app.initialize.redis import init_redis
+from app.initialize.redis import init_redis, close_redis
 import uvicorn
 
 @asynccontextmanager
@@ -10,7 +10,8 @@ async def lifespan(app: FastAPI):
     # Startup
     await init_redis()
     yield
-    # Shutdown - Redis connection remains open as requested
+    # Shutdown
+    await close_redis()
 
 app = FastAPI(title="Agent API", version="1.0.0", lifespan=lifespan)
 
