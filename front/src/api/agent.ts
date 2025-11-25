@@ -30,7 +30,10 @@ export async function chatStream(
   onComplete?: () => void
 ): Promise<void> {
   try {
-    const response = await fetch('http://127.0.0.1:8000/api/agent/chat', {
+    // TODO: Replace with actual token from URL params or localStorage
+    const ACCESS_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJJRCI6MzM0LCJPcGVuSUQiOiJvdEdjSTdFQXhsUUJQMWE1WlhLNVJ1cTloQ2UwIiwiQnVmZmVyVGltZSI6ODY0MDAsImlzcyI6InFtUGx1cyIsImF1ZCI6WyJBUFAiXSwiZXhwIjoxNzY0NTk3NTM3LCJuYmYiOjE3NjM5OTI3Mzd9.aOGj3aCwxi7ZvpgSuXxuj-b9eHx4OGnFSV9wqCo-98w';
+    
+    const response = await fetch(`http://127.0.0.1:8000/api/agent/chat?access_token=${ACCESS_TOKEN}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
