@@ -1,9 +1,20 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 from app.api.agent import router as agent_router
+
+from app.initialize.redis import init_redis, close_redis
 import uvicorn
 
-app = FastAPI(title="Agent API", version="1.0.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    await init_redis()
+    yield
+    # Shutdown
+    await close_redis()
+
+app = FastAPI(title="Agent API", version="1.0.0", lifespan=lifespan)
 
 # 解决跨域问题
 app.add_middleware(
@@ -26,6 +37,7 @@ def ping():
     return {"message": "Hello from FastAPI!"}
 
 
+
 def start_server():
     """
     启动 Uvicorn 服务器来运行 FastAPI 应用
@@ -37,7 +49,7 @@ def start_server():
     # - host: 服务器监听的 IP 地址
     # - port: 服务器监听的端口
     # - reload: (可选) 开启热重载，方便开发
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, log_level="info")
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True, log_level="debug")
 
     # 注意: 一旦调用 uvicorn.run()，它会阻塞程序直到服务器停止。
 
