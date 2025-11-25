@@ -58,7 +58,11 @@
 
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted } from 'vue';
-import { chatStream, type ChatMessage } from '../api/agent';
+import { chatStream, initSession, type ChatMessage } from '../api/agent';
+
+// Session token management
+const sessionToken = ref<string>('');
+const isInitializing = ref(false);
 
 const title = ref('AI 助手');
 const provider = ref<'ollama' | 'deepseek'>('ollama');
@@ -80,7 +84,7 @@ const messages = ref<ChatMessage[]>([
 
 // 是否可以发送
 const canSend = computed(() => {
-  return inputText.value.trim().length > 0 && !isLoading.value;
+  return inputText.value.trim().length > 0 && !isLoading.value && sessionToken.value !== '';
 });
 
 // 滚动到底部
@@ -131,6 +135,7 @@ const handleSend = async () => {
     // 调用流式接口
     console.log('[Chat] 开始发送消息，历史消息数:', chatHistory.length);
     await chatStream(
+      sessionToken.value,  // 第一个参数: session_token
       {
         messages: chatHistory,
         provider: provider.value,
@@ -180,9 +185,52 @@ const handleSend = async () => {
   }
 };
 
-onMounted(() => {
+
+// 初始化会话
+const initializeSession = async () => {
+  try {
+    isInitializing.value = true;
+    
+    // 获取 access_token 的优先级:
+    // 1. URL 参数 (例如: ?access_token=xxx)
+    // 2. localStorage
+    // 3. 环境变量 (仅用于开发测试)
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlToken = urlParams.get('access_token');
+    const storageToken = localStorage.getItem('access_token');
+    const envToken = import.meta.env.VITE_TEST_ACCESS_TOKEN;
+    
+    const ACCESS_TOKEN = urlToken || storageToken || envToken;
+    
+    if (!ACCESS_TOKEN) {
+      console.error('[Session] 未找到 access_token');
+      alert('未找到用户认证信息,请重新登录');
+      return;
+    }
+    
+    console.log('[Session] 初始化会话...');
+    const response = await initSession(ACCESS_TOKEN);
+    
+    if (response.code === 200) {
+      sessionToken.value = response.data.session_token;
+      console.log('[Session] 会话初始化成功:', sessionToken.value.substring(0, 20) + '...');
+    } else {
+      console.error('[Session] 会话初始化失败:', response);
+      alert('会话初始化失败,请刷新页面重试');
+    }
+  } catch (error) {
+    console.error('[Session] 初始化错误:', error);
+    alert('会话初始化失败,请刷新页面重试');
+  } finally {
+    isInitializing.value = false;
+  }
+};
+
+onMounted(async () => {
+  await initializeSession();
   scrollToBottom();
 });
+
 </script>
 
 <style scoped>

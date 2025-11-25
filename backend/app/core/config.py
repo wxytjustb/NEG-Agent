@@ -51,6 +51,14 @@ class Settings(BaseSettings):
     REDIS_PASSWORD: Optional[str] = None
     REDIS_TTL: int = 300  # 5 minutes
     
+    # Session Token Configuration
+    SESSION_TOKEN_EXPIRE_MINUTES: int = 30  # 30 minutes
+    SESSION_REDIS_PREFIX: str = "session:"  # Redis key prefix for sessions
+    
+    # Test Access Token (for development/testing only)
+    TEST_ACCESS_TOKEN: Optional[str] = None
+
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

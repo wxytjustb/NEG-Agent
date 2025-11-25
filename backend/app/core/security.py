@@ -15,7 +15,8 @@ api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
 
 async def verify_token_with_go_server(token: str) -> dict:
     """
-    向 Golang Server 验证 Token (带 Redis 缓存)
+    向 Golang Server 验证 Token (仅用于会话初始化)
+    注意: 此函数不再缓存结果,缓存由 session_token 模块管理
     """
     if not token:
         raise HTTPException(
@@ -23,18 +24,7 @@ async def verify_token_with_go_server(token: str) -> dict:
             detail="Missing access token",
         )
 
-    # 1. 检查 Redis 缓存
-    cache_key = f"auth:token:{token}"
-    try:
-        cached_user = await redis.redis_client.get(cache_key)
-        if cached_user:
-            logger.info("Token verified via Redis cache")
-            return json.loads(cached_user)
-    except Exception as e:
-        logger.error(f"Redis error: {e}")
-        # Redis 错误不应阻断流程，继续请求 upstream
-
-    # 2. 请求 Upstream
+    # 请求 Golang Server 验证
     verify_url = f"{settings.GOLANG_API_BASE_URL}{settings.GOLANG_VERIFY_ENDPOINT}"
     
     try:
@@ -62,18 +52,7 @@ async def verify_token_with_go_server(token: str) -> dict:
                 )
             
             user_data = resp_data.get("data", {})
-            logger.info(f"Token verification successful. Response: {resp_data}")
-
-            # 3. 写入 Redis 缓存
-            try:
-                await redis.redis_client.set(
-                    cache_key, 
-                    json.dumps(user_data), 
-                    ex=settings.REDIS_TTL
-                )
-            except Exception as e:
-                logger.error(f"Failed to cache user data in Redis: {e}")
-
+            logger.info(f"Token verification successful. User ID: {user_data.get('id', 'unknown')}")
             return user_data
 
     except httpx.RequestError as e:
@@ -83,17 +62,61 @@ async def verify_token_with_go_server(token: str) -> dict:
             detail="Authentication service unavailable",
         )
 
+
+async def get_current_session(
+    session_token: str = Query(None, description="Session Token via Query Param"),
+    header_token: str = Security(api_key_header)
+) -> dict:
+    """
+    获取当前会话依赖 (用于已初始化的会话)
+    优先使用 Query Param (session_token=xxx),其次使用 Header (Authorization: xxx)
+    """
+    from app.core.session_token import get_session, refresh_session
+    
+    token = session_token
+    
+    # 如果 Query Param 没有,尝试从 Header 获取
+    if not token and header_token:
+        # 处理 Bearer 前缀
+        if header_token.startswith("Bearer "):
+            token = header_token.split(" ")[1]
+        else:
+            token = header_token
+            
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated - session token required",
+        )
+    
+    # 从 Redis 获取会话信息
+    session_data = await get_session(token)
+    if not session_data:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired session",
+        )
+    
+    # 刷新会话过期时间
+    await refresh_session(token)
+    
+    # 返回用户信息
+    return session_data.get("user", {})
+
+
 async def get_current_user(
     access_token: str = Query(None, description="Access Token via Query Param"),
     header_token: str = Security(api_key_header)
 ):
     """
-    获取当前用户依赖
-    优先使用 Query Param (access_token=xxx)，其次使用 Header (Authorization: xxx)
+    获取当前用户依赖 (用于会话初始化)
+    优先使用 Query Param (access_token=xxx),其次使用 Header (Authorization: xxx)
+    
+    注意: 此函数仅用于 /api/agent/init 接口,其他接口应使用 get_current_session
     """
     token = access_token
     
-    # 如果 Query Param 没有，尝试从 Header 获取
+    # 如果 Query Param 没有,尝试从 Header 获取
     if not token and header_token:
         # 处理 Bearer 前缀
         if header_token.startswith("Bearer "):
@@ -109,3 +132,4 @@ async def get_current_user(
         
     user_info = await verify_token_with_go_server(token)
     return user_info
+
