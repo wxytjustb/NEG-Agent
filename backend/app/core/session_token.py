@@ -70,10 +70,13 @@ async def get_session(session_token: str) -> Optional[Dict[str, Any]]:
         cached_data = await redis.redis_client.get(cache_key)
         if cached_data:
             session_data = json.loads(cached_data)
-            logger.info(f"Session retrieved from cache: {session_token[:20]}...")
+            logger.info(f"Session retrieved from Redis: {session_token[:20]}...")
             return session_data
         else:
-            logger.warning(f"Session not found or expired: {session_token[:20]}...")
+            # Session 不存在或已过期
+            # 注意：无法在此处清除 user_session 映射，因为我们无法从过期的 session 中获取 user_id
+            # user_session 映射会在下次用户初始化时由 get_session_by_user_id 清除
+            logger.warning(f"Session not found or expired in Redis: {session_token[:20]}... (可能是 Redis 过期或已删除)")
             return None
     except Exception as e:
         logger.error(f"Failed to get session from Redis: {e}")

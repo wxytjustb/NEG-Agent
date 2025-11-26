@@ -158,7 +158,14 @@ const handleSend = async () => {
         console.error('[Chat] 错误:', error);
         const msg = messages.value[assistantMessageIndex];
         if (msg) {
-          msg.content = `错误: ${error.message}`;
+          // 检查是否是 session 过期错误
+          if (error.message.includes('会话已过期')) {
+            msg.content = `⚠️ 会话已过期，请刷新页面重新登录`;
+            // 清空 sessionToken，防止继续使用
+            sessionToken.value = '';
+          } else {
+            msg.content = `错误: ${error.message}`;
+          }
         }
         isLoading.value = false;
         scrollToBottom();
@@ -204,7 +211,8 @@ const initializeSession = async () => {
     const cachedAccessToken = localStorage.getItem('access_token');
     
     if (cachedAccessToken === ACCESS_TOKEN) {
-      // access_token 没变，可以使用缓存
+      // access_token 没变，使用缓存的 session_token
+      // 注意：如果 Redis 中的 session 已过期，会在发送消息时检测到 401 错误并清除缓存
       const cachedSessionToken = localStorage.getItem('session_token');
       if (cachedSessionToken) {
         sessionToken.value = cachedSessionToken;

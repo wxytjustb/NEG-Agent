@@ -91,6 +91,13 @@ export async function chatStream(
     });
 
     if (!response.ok) {
+      // 如果是 401 错误（session 过期），清除本地缓存
+      if (response.status === 401) {
+        console.warn('[Session] Session 已过期，清除本地缓存');
+        localStorage.removeItem('session_token');
+        localStorage.removeItem('access_token');
+        throw new Error('会话已过期，请刷新页面重新登录');
+      }
       throw new Error(`请求失败: ${response.status}`);
     }
 
