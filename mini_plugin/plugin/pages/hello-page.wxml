@@ -13,7 +13,7 @@
   </view>
 
   <view class="wx-content">
-    <scroll-view class="wx-scroll" scroll-y scroll-with-animation scroll-into-view="{{lastId}}">
+    <scroll-view class="wx-scroll" scroll-y scroll-with-animation="{{true}}" scroll-top="{{scrollTop}}" bindtouchstart="onTouchStart" bindtouchend="onTouchEnd">
       <view wx:for="{{messages}}" wx:key="index" id="msg-{{index}}" class="wx-msg {{item.type}}">
         <view class="wx-bubble {{item.type}}">
           <view wx:if="{{isLoading && item.type==='other' && index===messages.length-1 && (!item.text || item.text==='')}}" class="wx-typing">
