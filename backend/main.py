@@ -5,6 +5,7 @@ from app.api.agent import router as agent_router
 
 from app.initialize.redis import init_redis, close_redis
 import uvicorn
+import logging
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

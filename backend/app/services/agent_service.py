@@ -2,6 +2,8 @@
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from typing import List, Dict, Optional, AsyncGenerator
 from app.services.llm_service import llm_service
+from app.services.redis_service import redis_service
+from app.core.session_token import get_session
 from app.prompts.prompts import RIGHTS_PROTECTION_SYSTEM_PROMPT, GENERAL_CHAT_SYSTEM_PROMPT
 import logging
 
@@ -40,8 +42,9 @@ class AgentService:
         
         # 如果需要自动注入系统提示词且没有 system 消息
         if auto_inject_prompt and not has_system:
-            prompt_to_use = self.default_system_prompt  or system_prompt
-            langchain_messages.append(SystemMessage(content=prompt_to_use))
+            prompt_to_use = self.default_system_prompt or system_prompt or ""
+            if prompt_to_use:  # 只在有提示词时添加
+                langchain_messages.append(SystemMessage(content=prompt_to_use))
         
         # 转换用户消息
         for msg in messages:
@@ -65,7 +68,9 @@ class AgentService:
         model: Optional[str] = None,
         provider: Optional[str] = None,
         system_prompt: Optional[str] = None,
-        auto_inject_prompt: bool = True
+        auto_inject_prompt: bool = True,
+        session_token: Optional[str] = None,
+        save_history: bool = True
     ) -> AsyncGenerator[str, None]:
         """执行流式对话生成
         
@@ -77,10 +82,46 @@ class AgentService:
             provider: 指定使用的提供商 ('deepseek' 或 'ollama')
             system_prompt: 自定义系统提示词
             auto_inject_prompt: 是否自动注入系统提示词（默认 False）
+            session_token: 会话 token（用于获取 user_id 并存储历史）
+            save_history: 是否保存对话历史到 Redis（默认 True）
             
         Yields:
             生成的文本块
         """
+        user_id = None
+        new_user_message = None  # 记录本次新的用户消息（在加载历史之前提取）
+        
+        # 从 session_token 获取 user_id
+        if session_token and save_history:
+            try:
+                session_data = await get_session(session_token)
+                if session_data:
+                    user_id = session_data.get("user_id")
+                    if user_id:  # 确保 user_id 存在
+                        logger.info(f"从 session 获取到 user_id: {user_id}")
+                        
+                        # ⚠️ 关键：在加载历史之前，先提取本次新的用户消息
+                        for msg in reversed(messages):
+                            if msg.get("role") == "user":
+                                new_user_message = msg.get("content", "")
+                                logger.info(f"提取新用户消息: {new_user_message[:50]}...")
+                                break
+                        
+                        # 加载对话历史
+                        history = await redis_service.get_chat_history(user_id)
+                        if history:
+                            logger.info(f"加载历史对话 {len(history)} 条消息")
+                            # 合并历史消息和当前消息（去重当前请求中的历史部分）
+                            if messages and messages[0].get("role") != "system":
+                                # 如果当前消息没有 system，将历史消息插入
+                                messages = history + messages
+                            else:
+                                # 保留 system 消息，其他历史消息追加
+                                messages = [messages[0]] + history + messages[1:]
+                else:
+                    logger.warning(f"session_token 无效或已过期: {session_token[:20]}...")
+            except Exception as e:
+                logger.error(f"获取 session 或历史失败: {str(e)}")
         try:
             # 创建 LLM 实例
             llm = self.llm_service.create_llm(
@@ -97,88 +138,44 @@ class AgentService:
                 auto_inject_prompt=auto_inject_prompt
             )
             
+            # 收集 AI 回复内容（用于保存历史）
+            ai_response = ""
+            
             # 流式调用模型
             async for chunk in llm.astream(langchain_messages):
                 if hasattr(chunk, 'content') and chunk.content:
                     # 确保输出为字符串
                     content = chunk.content
                     if isinstance(content, str):
+                        ai_response += content
                         yield content
                     elif isinstance(content, list):
                         # 处理列表类型的内容
                         for item in content:
                             if isinstance(item, str):
+                                ai_response += item
                                 yield item
                             elif isinstance(item, dict):
-                                yield str(item.get('text', ''))
+                                text = str(item.get('text', ''))
+                                ai_response += text
+                                yield text
+            
+            # 保存对话历史到 Redis（只保存本次新对话）
+            if save_history and user_id and ai_response and new_user_message:
+                try:
+                    # 使用之前提取的新用户消息（避免提取到历史消息）
+                    logger.info(f"保存新对话: user={new_user_message[:30]}..., ai={ai_response[:30]}...")
+                    
+                    # 追加用户消息和 AI 回复
+                    await redis_service.append_message(user_id, "", "user", new_user_message)
+                    await redis_service.append_message(user_id, "", "assistant", ai_response)
+                    logger.info(f"✅ 对话历史已保存: user_id={user_id}, 用户消息长度={len(new_user_message)}, AI回复长度={len(ai_response)}")
+                except Exception as e:
+                    logger.error(f"保存对话历史失败: {str(e)}")
                     
         except Exception as e:
             logger.error(f"流式对话失败: {str(e)}")
             raise Exception(f"流式对话失败: {str(e)}")
     
-    async def simple_chat_stream(
-        self,
-        prompt: str,
-        system_message: Optional[str] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
-        provider: Optional[str] = None
-    ) -> AsyncGenerator[str, None]:
-        """简单流式对话（单轮）
-        
-        Args:
-            prompt: 用户提示词
-            system_message: 系统提示词
-            temperature: 温度参数
-            max_tokens: 最大token数
-            provider: 指定使用的提供商
-            
-        Yields:
-            生成的文本块
-        """
-        messages = []
-        
-        if system_message:
-            messages.append({"role": "system", "content": system_message})
-        
-        messages.append({"role": "user", "content": prompt})
-        
-        async for chunk in self.chat_stream(
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            provider=provider
-        ):
-            yield chunk
-    
-    async def rights_protection_chat(
-        self,
-        messages: List[Dict[str, str]],
-        temperature: Optional[float] = 0.7,
-        max_tokens: Optional[int] = 2000,
-        provider: Optional[str] = None
-    ) -> AsyncGenerator[str, None]:
-        """权益保障智能体对话（自动注入权益保障提示词）
-        
-        Args:
-            messages: 对话消息列表
-            temperature: 温度参数（默认0.7，保证专业性）
-            max_tokens: 最大token数
-            provider: LLM提供商
-            
-        Yields:
-            生成的文本块
-        """
-        async for chunk in self.chat_stream(
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            provider=provider,
-            system_prompt=RIGHTS_PROTECTION_SYSTEM_PROMPT,
-            auto_inject_prompt=True  # 自动注入权益保障提示词
-        ):
-            yield chunk
-
-
 # 创建全局服务实例
 agent_service = AgentService()

@@ -33,9 +33,13 @@ async def create_session(user_data: Dict[str, Any]) -> str:
     session_token = generate_session_token()
     cache_key = f"{settings.SESSION_REDIS_PREFIX}{session_token}"
     
-    # 会话数据包含用户信息和元数据
+    # 提取关键用户信息（轻量化）
+    user_id = user_data.get('appUserId') or user_data.get('ID') or user_data.get('id') or user_data.get('username', 'unknown')
+    
+    # 会话数据只存储必要信息
     session_data = {
-        "user": user_data,
+        "user_id": str(user_id),
+        "username": user_data.get('username', ''),
         "created_at": datetime.now().isoformat(),
         "last_activity": datetime.now().isoformat(),
     }
@@ -115,6 +119,39 @@ async def refresh_session(session_token: str) -> bool:
     except Exception as e:
         logger.error(f"Failed to refresh session: {e}")
         return False
+
+
+async def get_or_create_session(user_data: Dict[str, Any]) -> str:
+    """
+    创建用户会话（简化版，不再维护 user_id 映射）
+    
+    逻辑:
+    每次调用都创建新的 session_token
+    如果需要复用 session，应该由前端存储 session_token 并传递
+    
+    Args:
+        user_data: 用户信息字典
+    
+    Returns:
+        session_token: 会话 Token
+    """
+    if not redis.redis_client:
+        logger.warning("Redis 客户端未初始化，无法创建 session")
+        # 降级方案：生成临时 token（不存储）
+        return generate_session_token()
+    
+    try:
+        # 直接创建新的 session
+        new_session_token = await create_session(user_data)
+        
+        user_id = user_data.get('appUserId') or user_data.get('ID') or user_data.get('id') or user_data.get('username', 'unknown')
+        logger.info(f"✅ 创建新 session: user_id={user_id}, token={new_session_token[:20]}...")
+        return new_session_token
+        
+    except Exception as e:
+        logger.error(f"❌ 创建 session 失败: {str(e)}", exc_info=True)
+        # 降级方案：生成临时 token
+        return generate_session_token()
 
 
 async def delete_session(session_token: str) -> bool:
@@ -204,9 +241,10 @@ async def create_or_get_session(user_data: Dict[str, Any]) -> str:
     cache_key = f"{settings.SESSION_REDIS_PREFIX}{session_token}"
     user_session_key = f"{settings.USER_SESSION_PREFIX}{user_id}"
     
-    # 会话数据包含用户信息和元数据
+    # 会话数据（轻量化格式，只存储必要信息）
     session_data = {
-        "user": user_data,
+        "user_id": user_id,
+        "username": user_data.get('username', ''),
         "created_at": datetime.now().isoformat(),
         "last_activity": datetime.now().isoformat(),
     }

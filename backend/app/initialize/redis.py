@@ -11,11 +11,12 @@ async def init_redis():
     """初始化 Redis 连接并检查连通性"""
     global redis_client
     try:
+        logger.info(f"尝试连接 Redis: {settings.REDIS_HOST}:{settings.REDIS_PORT}")
         redis_client = redis.Redis(
             host=settings.REDIS_HOST,
             port=settings.REDIS_PORT,
             db=settings.REDIS_DB,
-            password=settings.REDIS_PASSWORD,
+            password=settings.REDIS_PASSWORD if settings.REDIS_PASSWORD else None,
             decode_responses=True
         )
         # Ping 测试
@@ -23,6 +24,8 @@ async def init_redis():
         logger.info(f"✅ Redis connected: {settings.REDIS_HOST}:{settings.REDIS_PORT}")
     except Exception as e:
         logger.error(f"❌ Redis connection failed: {e}")
+        logger.error(f"Redis 配置: host={settings.REDIS_HOST}, port={settings.REDIS_PORT}, db={settings.REDIS_DB}")
+        redis_client = None
         # 如果 Redis 连接失败，可以选择抛出异常阻止启动，或者仅记录日志（降级处理）
         # 这里仅记录日志，后续 verify_token 会 fallback 到 upstream
         

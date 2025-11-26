@@ -28,6 +28,18 @@ export interface SessionResponse {
   };
 }
 
+// 对话历史响应
+export interface HistoryResponse {
+  code: number;
+  msg: string;
+  data: {
+    user_id: string;
+    metadata: any;
+    messages: ChatMessage[];
+    is_new_user: boolean;
+  };
+}
+
 
 /**
  * 初始化 Agent 会话
@@ -160,8 +172,63 @@ export async function chatStream(
 }
 
 /**
+ * 获取对话历史
+ * @param sessionToken 会话 Token
+ * @returns Promise<HistoryResponse>
+ */
+export async function getChatHistory(sessionToken: string): Promise<HistoryResponse> {
+  try {
+    const response = await fetch(`http://127.0.0.1:8000/api/agent/history?session_token=${sessionToken}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`获取历史失败: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log('[History] 对话历史:', data);
+    return data;
+  } catch (error) {
+    console.error('Get chat history error:', error);
+    throw error;
+  }
+}
+
+/**
  * 健康检查
  */
 export async function ping() {
   return post('/ping');
+}
+
+/**
+ * 开始新对话（增加 conversation_count）
+ * @param accessToken 用户认证 Token
+ * @returns Promise<any>
+ */
+export async function startNewConversation(accessToken: string): Promise<any> {
+  try {
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+    const response = await fetch(`${API_BASE_URL}/api/agent/new-conversation?access_token=${accessToken}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`开始新对话失败: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log('[NewConversation] 新对话已开始:', data);
+    return data;
+  } catch (error) {
+    console.error('Start new conversation error:', error);
+    throw error;
+  }
 }

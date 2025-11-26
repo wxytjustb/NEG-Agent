@@ -15,13 +15,18 @@
 
     <!-- 消息列表 -->
     <div class="chat-messages" ref="messagesContainer">
-      <div 
-        v-for="(msg, index) in messages" 
-        :key="index" 
+      <div
+        v-for="(msg, index) in messages"
+        :key="index"
         class="message-wrapper"
-        :class="msg.role === 'user' ? 'message-user' : 'message-assistant'"
+        :class="msg.role === 'user' ? 'message-user' : msg.role === 'divider' ? '' : 'message-assistant'"
       >
-        <div class="message-bubble" :class="msg.role">
+        <!-- 分隔线 -->
+        <div v-if="msg.role === 'divider'" class="history-divider">
+          <span class="divider-text">{{ msg.content }}</span>
+        </div>
+        <!-- 正常消息 -->
+        <div v-else class="message-bubble" :class="msg.role">
           <!-- 加载动画 -->
           <div v-if="isLoading && msg.role === 'assistant' && index === messages.length - 1 && !msg.content" class="typing-indicator">
             <span class="dot"></span>
@@ -44,8 +49,8 @@
         @keydown.enter.exact.prevent="handleSend"
         :disabled="isLoading"
       ></textarea>
-      <button 
-        class="send-btn" 
+      <button
+        class="send-btn"
         :class="{ disabled: !canSend }"
         :disabled="!canSend"
         @click="handleSend"
@@ -58,7 +63,13 @@
 
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted } from 'vue';
-import { chatStream, initSession, type ChatMessage } from '../api/agent';
+import { chatStream, initSession, getChatHistory, type ChatMessage as APIChatMessage } from '../api/agent';
+
+// 消息类型（扩展支持分隔线）
+interface ChatMessage {
+  role: 'user' | 'assistant' | 'system' | 'divider';
+  content: string;
+}
 
 // Session token management
 const sessionToken = ref<string>('');
@@ -74,13 +85,8 @@ const inputText = ref('');
 const isLoading = ref(false);
 const messagesContainer = ref<HTMLElement | null>(null);
 
-// 消息列表
-const messages = ref<ChatMessage[]>([
-  {
-    role: 'assistant',
-    content: '你好，我是AI助手，有什么我可以帮助你的吗？'
-  }
-]);
+// 消息列表（默认为空，由历史接口加载）
+const messages = ref<ChatMessage[]>([]);
 
 // 是否可以发送
 const canSend = computed(() => {
@@ -122,15 +128,19 @@ const handleSend = async () => {
     role: 'assistant',
     content: ''
   });
-  
+
   isLoading.value = true;
   scrollToBottom();
 
   try {
-    // 构建聊天历史（排除当前正在构建的助手消息）
+    // 构建聊天历史（排除当前正在构建的助手消息和分隔线）
     const chatHistory = messages.value
       .slice(0, -1)
-      .filter(msg => msg.role !== 'system');
+      .filter(msg => msg.role !== 'system' && msg.role !== 'divider')
+      .map(msg => ({
+        role: msg.role as 'user' | 'assistant',
+        content: msg.content
+      }));
 
     // 调用流式接口
     console.log('[Chat] 开始发送消息，历史消息数:', chatHistory.length);
@@ -192,24 +202,88 @@ const handleSend = async () => {
   }
 };
 
+// 加载对话历史
+const loadChatHistory = async () => {
+  if (!sessionToken.value) {
+    console.error('[History] 无法加载历史：session_token 为空');
+    return;
+  }
+
+  try {
+    console.log('[History] 开始加载对话历史...');
+    const response = await getChatHistory(sessionToken.value);
+    
+    if (response.code === 200) {
+      const historyMessages = response.data.messages;
+      
+      // 如果有历史记录（不是新用户）
+      if (!response.data.is_new_user && historyMessages.length > 0) {
+        // 构建完整消息列表：历史消息 + 分隔线 + 欢迎消息
+        messages.value = [
+          ...historyMessages,  // 历史对话
+          {
+            role: 'divider',
+            content: '以上是历史对话'
+          },
+          {
+            role: 'assistant',
+            content: '你好，我是AI助手，有什么我可以帮助你的吗？'
+          }
+        ];
+        console.log('[History] ✅ 历史加载成功，消息数:', historyMessages.length);
+      } else {
+        // 新用户，只显示欢迎消息
+        messages.value = [
+          {
+            role: 'assistant',
+            content: '你好，我是AI助手，有什么我可以帮助你的吗？'
+          }
+        ];
+        console.log('[History] ✅ 新用户，显示欢迎消息');
+      }
+      
+      console.log('[History] is_new_user:', response.data.is_new_user);
+      scrollToBottom();
+    } else {
+      console.error('[History] 加载失败:', response.msg);
+      // 失败时显示默认欢迎消息
+      messages.value = [
+        {
+          role: 'assistant',
+          content: '你好，我是AI助手，有什么我可以帮助你的吗？'
+        }
+      ];
+    }
+  } catch (error) {
+    console.error('[History] 加载错误:', error);
+    // 错误时显示默认欢迎消息
+    messages.value = [
+      {
+        role: 'assistant',
+        content: '你好，我是AI助手，有什么我可以帮助你的吗？'
+      }
+    ];
+  }
+};
+
 // 初始化会话
 const initializeSession = async () => {
   try {
     isInitializing.value = true;
-    
+
     // 1. 从 URL 获取 access_token
     const urlParams = new URLSearchParams(window.location.search);
     const ACCESS_TOKEN = urlParams.get('access_token');
-    
+
     if (!ACCESS_TOKEN) {
       console.error('[Session] 未找到 access_token');
       alert('未找到用户认证信息\n请通过 URL 参数传递 token:\nhttp://localhost:5173/?access_token=your_token');
       return;
     }
-    
+
     // 2. 检查缓存的 session 是否属于当前 access_token
     const cachedAccessToken = localStorage.getItem('access_token');
-    
+
     if (cachedAccessToken === ACCESS_TOKEN) {
       // access_token 没变，使用缓存的 session_token
       // 注意：如果 Redis 中的 session 已过期，会在发送消息时检测到 401 错误并清除缓存
@@ -227,11 +301,11 @@ const initializeSession = async () => {
         localStorage.removeItem('access_token');
       }
     }
-    
+
     // 3. 调用初始化接口（后端会自动复用现有 session）
     console.log('[Session] 正在初始化会话...');
     const response = await initSession(ACCESS_TOKEN);
-    
+
     if (response.code === 200) {
       sessionToken.value = response.data.session_token;
       // 保存 session_token 和 access_token
@@ -246,7 +320,12 @@ const initializeSession = async () => {
   } catch (error: any) {
     console.error('[Session] 初始化错误:', error);
     const errorMsg = error.message || '会话初始化失败';
-    alert(`❌ ${errorMsg}\n\n请检查:\n1. access_token 是否有效\n2. 网络连接是否正常\n3. 后端服务是否运行`);
+    alert(`❌ ${errorMsg}
+
+请检查:
+1. access_token 是否有效
+2. 网络连接是否正常
+3. 后端服务是否运行`);
   } finally {
     isInitializing.value = false;
   }
@@ -254,6 +333,8 @@ const initializeSession = async () => {
 
 onMounted(async () => {
   await initializeSession();
+  // 初始化完成后加载历史
+  await loadChatHistory();
   scrollToBottom();
 });
 
@@ -483,5 +564,30 @@ onMounted(async () => {
 
 .chat-messages::-webkit-scrollbar-thumb:hover {
   background: #999;
+}
+
+/* 历史分隔线 */
+.history-divider {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 20px 0;
+  position: relative;
+}
+
+.history-divider::before,
+.history-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(to right, transparent, #d0d0d0, transparent);
+}
+
+.divider-text {
+  padding: 0 16px;
+  color: #999;
+  font-size: 12px;
+  white-space: nowrap;
 }
 </style>

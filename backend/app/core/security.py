@@ -110,8 +110,13 @@ async def get_current_session(
     # 刷新会话过期时间
     await refresh_session(token)
     
-    # 返回用户信息
-    return session_data.get("user", {})
+    # 返回完整的会话信息（包含 session_token 和 user_id）
+    return {
+        "session_token": token,
+        "user_id": session_data.get("user_id"),
+        "username": session_data.get("username"),
+        **session_data
+    }
 
 
 async def get_current_user(
