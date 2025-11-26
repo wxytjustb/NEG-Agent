@@ -4,7 +4,7 @@ from fastapi.responses import StreamingResponse
 from app.schemas.agent_schema import AgentChatRequest
 from app.services.agent_service import agent_service
 from app.core.security import get_current_user, get_current_session
-from app.core.session_token import create_session
+from app.core.session_token import create_or_get_session
 import logging
 
 logger = logging.getLogger(__name__)
@@ -29,9 +29,9 @@ async def init_session(user: dict = Depends(get_current_user)):
     - expires_in: 会话过期时间 (秒)
     """
     try:
-        # 创建会话并生成 session_token
+        # 创建或获取会话 (如果用户已有活跃会话则复用)
         from app.core.config import settings
-        session_token = await create_session(user)
+        session_token = await create_or_get_session(user)
         
         logger.info(f"Session initialized for user {user.get('id', 'unknown')}")
         

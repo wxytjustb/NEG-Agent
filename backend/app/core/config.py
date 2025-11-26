@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     # Session Token Configuration
     SESSION_TOKEN_EXPIRE_MINUTES: int = 30  # 30 minutes
     SESSION_REDIS_PREFIX: str = "session:"  # Redis key prefix for sessions
+    USER_SESSION_PREFIX: str = "user_session:"  # Redis key prefix for user-to-session mapping
     
     # Test Access Token (for development/testing only)
     TEST_ACCESS_TOKEN: Optional[str] = None

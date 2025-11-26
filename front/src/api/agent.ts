@@ -36,20 +36,23 @@ export interface SessionResponse {
  */
 export async function initSession(accessToken: string): Promise<SessionResponse> {
   try {
-    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
-    const response = await fetch(`${API_BASE_URL}/api/agent/init?access_token=${accessToken}`, {
+    const response = await fetch(`http://127.0.0.1:8000/api/agent/init?access_token=${accessToken}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
     });
 
+    const data = await response.json();
+
     if (!response.ok) {
-      throw new Error(`初始化会话失败: ${response.status}`);
+      // 提取后端返回的错误信息
+      const errorMsg = data.detail || `HTTP ${response.status}: ${response.statusText}`;
+      console.error('[Session] 初始化失败:', errorMsg);
+      throw new Error(errorMsg);
     }
 
-    const data = await response.json();
-    console.log('[Session] 会话初始化成功:', data);
+    console.log('[Session] 会话初始化响应:', data);
     return data;
   } catch (error) {
     console.error('Init session error:', error);
@@ -72,8 +75,7 @@ export async function chatStream(
   onComplete?: () => void
 ): Promise<void> {
   try {
-    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
-    const response = await fetch(`${API_BASE_URL}/api/agent/chat?session_token=${sessionToken}`, {
+    const response = await fetch(`http://127.0.0.1:8000/api/agent/chat?session_token=${sessionToken}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

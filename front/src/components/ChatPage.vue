@@ -185,42 +185,60 @@ const handleSend = async () => {
   }
 };
 
-
 // 初始化会话
 const initializeSession = async () => {
   try {
     isInitializing.value = true;
     
-    // 获取 access_token 的优先级:
-    // 1. URL 参数 (例如: ?access_token=xxx)
-    // 2. localStorage
-    // 3. 环境变量 (仅用于开发测试)
+    // 1. 从 URL 获取 access_token
     const urlParams = new URLSearchParams(window.location.search);
-    const urlToken = urlParams.get('access_token');
-    const storageToken = localStorage.getItem('access_token');
-    const envToken = import.meta.env.VITE_TEST_ACCESS_TOKEN;
-    
-    const ACCESS_TOKEN = urlToken || storageToken || envToken;
+    const ACCESS_TOKEN = urlParams.get('access_token');
     
     if (!ACCESS_TOKEN) {
       console.error('[Session] 未找到 access_token');
-      alert('未找到用户认证信息,请重新登录');
+      alert('未找到用户认证信息\n请通过 URL 参数传递 token:\nhttp://localhost:5173/?access_token=your_token');
       return;
     }
     
-    console.log('[Session] 初始化会话...');
+    // 2. 检查缓存的 session 是否属于当前 access_token
+    const cachedAccessToken = localStorage.getItem('access_token');
+    
+    if (cachedAccessToken === ACCESS_TOKEN) {
+      // access_token 没变，可以使用缓存
+      const cachedSessionToken = localStorage.getItem('session_token');
+      if (cachedSessionToken) {
+        sessionToken.value = cachedSessionToken;
+        console.log('[Session] ✅ 使用缓存的 session_token:', cachedSessionToken.substring(0, 20) + '...');
+        return;
+      }
+    } else {
+      // access_token 变了，清除旧缓存
+      if (cachedAccessToken) {
+        console.log('[Session] ⚠️ 检测到 access_token 变化，清除旧会话缓存');
+        localStorage.removeItem('session_token');
+        localStorage.removeItem('access_token');
+      }
+    }
+    
+    // 3. 调用初始化接口（后端会自动复用现有 session）
+    console.log('[Session] 正在初始化会话...');
     const response = await initSession(ACCESS_TOKEN);
     
     if (response.code === 200) {
       sessionToken.value = response.data.session_token;
-      console.log('[Session] 会话初始化成功:', sessionToken.value.substring(0, 20) + '...');
+      // 保存 session_token 和 access_token
+      localStorage.setItem('session_token', response.data.session_token);
+      localStorage.setItem('access_token', ACCESS_TOKEN);
+      console.log('[Session] ✅ 会话初始化成功:', sessionToken.value.substring(0, 20) + '...');
     } else {
       console.error('[Session] 会话初始化失败:', response);
-      alert('会话初始化失败,请刷新页面重试');
+      const errorMsg = response.msg || '会话初始化失败';
+      alert(`❌ ${errorMsg}\n\n请检查 access_token 是否有效`);
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('[Session] 初始化错误:', error);
-    alert('会话初始化失败,请刷新页面重试');
+    const errorMsg = error.message || '会话初始化失败';
+    alert(`❌ ${errorMsg}\n\n请检查:\n1. access_token 是否有效\n2. 网络连接是否正常\n3. 后端服务是否运行`);
   } finally {
     isInitializing.value = false;
   }
