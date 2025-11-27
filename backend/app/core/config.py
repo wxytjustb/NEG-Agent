@@ -59,6 +59,14 @@ class Settings(BaseSettings):
     # Test Access Token (for development/testing only)
     TEST_ACCESS_TOKEN: Optional[str] = None
 
+    # Laminar 配置（LangChain 监控和可视化）
+    LAMINAR_API_KEY: Optional[str] = None
+    LAMINAR_BASE_URL: Optional[str] = None  # 自托管服务器地址
+    LAMINAR_HTTP_PORT: int = 8080  # HTTP 端口
+    LAMINAR_GRPC_PORT: int = 8081  # gRPC 端口
+    LAMINAR_ENABLED: bool = True  # 是否启用
+    LAMINAR_ENVIRONMENT: str = "development"  # 环境名称
+
     
     class Config:
         env_file = ".env"
