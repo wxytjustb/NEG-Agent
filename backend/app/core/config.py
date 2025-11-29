@@ -67,6 +67,15 @@ class Settings(BaseSettings):
     LAMINAR_ENABLED: bool = True  # 是否启用
     LAMINAR_ENVIRONMENT: str = "development"  # 环境名称
 
+    # LangGraph 配置（工作流编排）
+    LANGGRAPH_ENABLED: bool = True
+    LANGGRAPH_MAX_ITERATIONS: int = 10  # 最大迭代次数
+    LANGGRAPH_TIMEOUT: int = 300  # 超时时间（秒）
+    LANGGRAPH_TRACING_ENABLED: bool = True  # 是否启用追踪
+    LANGGRAPH_VERBOSE: bool = True  # 是否输出详细日志
+    LANGGRAPH_CHECKPOINT_ENABLED: bool = False  # 是否启用检查点
+    LANGGRAPH_CHECKPOINT_BACKEND: str = "memory"  # memory/redis/sqlite
+
     
     class Config:
         env_file = ".env"

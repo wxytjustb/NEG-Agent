@@ -66,24 +66,34 @@ class RedisService:
             messages: 对话历史列表
             increment_count: 是否增加对话轮次计数
         """
+        logger.info(f"🔍 [RedisService] save_chat_history 被调用")
+        logger.info(f"🔍 [RedisService] user_id={user_id}, messages_count={len(messages)}")
+        
         if not redis.redis_client:
-            logger.warning("Redis 客户端未初始化，跳过历史保存")
+            logger.warning("⚠️ [RedisService] Redis 客户端未初始化，跳过历史保存")
             return
+        
+        logger.info(f"✅ [RedisService] Redis 客户端已初始化")
         
         try:
             cache_key = f"{self.CHAT_HISTORY_PREFIX}{user_id}"
+            logger.info(f"🔑 [RedisService] 完整 Redis 键: {cache_key}")
             
             # 获取现有元数据（如果存在）
             existing_data = await redis.redis_client.get(cache_key)
             metadata = {}
             
             if existing_data:
+                logger.info(f"📚 [RedisService] 找到现有数据")
                 try:
                     existing = json.loads(existing_data)
                     if isinstance(existing, dict) and "metadata" in existing:
                         metadata = existing["metadata"]
-                except:
-                    pass
+                        logger.info(f"📚 [RedisService] 加载现有元数据: {metadata}")
+                except Exception as parse_error:
+                    logger.warning(f"⚠️ [RedisService] 解析现有数据失败: {parse_error}")
+            else:
+                logger.info(f"🆕 [RedisService] 未找到现有数据，将创建新记录")
             
             # 更新或初始化元数据
             if not metadata:
@@ -95,13 +105,14 @@ class RedisService:
                     "started_at": datetime.now().isoformat(),
                     "last_updated": datetime.now().isoformat()
                 }
-                logger.info(f"首次创建对话历史，用户ID: {user_id}, 会话ID: {metadata['conversation_id']}")
+                logger.info(f"🆕 [RedisService] 首次创建对话历史，用户ID: {user_id}, 会话ID: {metadata['conversation_id']}")
             else:
                 # 更新现有元数据
                 if increment_count:
                     metadata["conversation_count"] = metadata.get("conversation_count", 0) + 1
                     metadata["conversation_id"] = f"conv_{uuid.uuid4().hex[:12]}_{int(datetime.now().timestamp())}"
                 metadata["last_updated"] = datetime.now().isoformat()
+                logger.info(f"🔄 [RedisService] 更新元数据")
             
             # 构建新格式数据
             data = {
@@ -109,14 +120,23 @@ class RedisService:
                 "messages": messages
             }
             
+            logger.info(f"💾 [RedisService] 开始写入 Redis...")
             await redis.redis_client.set(
                 cache_key,
                 json.dumps(data, ensure_ascii=False),
                 ex=self.CHAT_HISTORY_TTL
             )
-            logger.info(f"对话历史已保存，用户ID: {user_id}, 会话ID: {metadata['conversation_id']}, 对话轮次: {metadata['conversation_count']}, 消息数: {len(messages)}")
+            logger.info(f"✅ [RedisService] 对话历史已保存，用户ID: {user_id}, 会话ID: {metadata['conversation_id']}, 对话轮次: {metadata['conversation_count']}, 消息数: {len(messages)}")
+            
+            # 验证写入
+            verify_data = await redis.redis_client.get(cache_key)
+            if verify_data:
+                logger.info(f"✅ [RedisService] 验证成功：Redis 中确实存在该键")
+            else:
+                logger.error(f"❌ [RedisService] 验证失败：Redis 中未找到该键")
+                
         except Exception as e:
-            logger.error(f"保存对话历史失败，用户ID: {user_id}, 错误: {str(e)}")
+            logger.error(f"❌ [RedisService] 保存对话历史失败，用户ID: {user_id}, 错误: {str(e)}", exc_info=True)
     
     async def append_message(self, user_id: str, session_id: str, role: str, content: str, increment_count: bool = False):
         """追加单条消息到对话历史
@@ -128,9 +148,18 @@ class RedisService:
             content: 消息内容
             increment_count: 是否增加对话轮次计数
         """
+        logger.info(f"🔍 [RedisService] append_message 被调用")
+        logger.info(f"🔍 [RedisService] user_id={user_id}, role={role}, content_length={len(content)}")
+        logger.info(f"🔍 [RedisService] Redis 键: chat:history:{user_id}")
+        
         history = await self.get_chat_history(user_id)
+        logger.info(f"🔍 [RedisService] 当前历史消息数: {len(history)}")
+        
         history.append({"role": role, "content": content})
+        logger.info(f"🔍 [RedisService] 追加后消息数: {len(history)}")
+        
         await self.save_chat_history(user_id, session_id, history, increment_count=increment_count)
+        logger.info(f"✅ [RedisService] append_message 完成")
     
     async def get_conversation_metadata(self, user_id: str) -> Optional[Dict[str, Any]]:
         """获取对话元数据（会话ID、对话轮次等）

@@ -39,7 +39,3 @@ GENERAL_CHAT_SYSTEM_PROMPT = """你是一个友好、专业的AI助手，能够�
 请用简洁、准确、友好的方式与用户交流。
 """
 
-# 其他智能体提示词可以在这里继续添加
-# 例如：
-# LEGAL_ASSISTANT_PROMPT = """..."""
-# CUSTOMER_SERVICE_PROMPT = """..."""

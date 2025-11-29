@@ -31,5 +31,8 @@ langchain_ollama==1.0.0
 ollama==0.6.1
 redis==5.0.1
 
+# LangGraph - 工作流编排
+langgraph==1.0.3
+
 # Laminar - 自动 Hook LangChain/LangGraph
 lmnr==0.7.23

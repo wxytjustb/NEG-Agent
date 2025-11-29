@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.api.agent import router as agent_router
+from app.api.workflow import router as workflow_router
 from app.initialize.redis import init_redis, close_redis
 from app.initialize.laminar import init_laminar
 import uvicorn
@@ -31,6 +32,7 @@ app.add_middleware(
 
 # 注册路由
 app.include_router(agent_router)
+app.include_router(workflow_router)
 
 @app.get("/")
 def root():
