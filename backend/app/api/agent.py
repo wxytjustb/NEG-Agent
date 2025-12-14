@@ -77,8 +77,10 @@ async def chat(request: AgentChatRequest, user: dict = Depends(get_current_sessi
         logger.info(f"用户: {user.get('username', 'Unknown')} (ID: {user.get('user_id', 'Unknown')})")
         logger.info(f"消息数量: {len(messages)}, provider={request.provider}")
         
-        # 获取 session_token（用于加载和保存历史）
+        # 获取用户信息（用于 Laminar 追踪和 Redis 保存）
+        user_id = user.get("user_id")
         session_token = user.get("session_token")
+        username = user.get("username", "Unknown")
         logger.info(f"session_token: {session_token[:20] if session_token else 'None'}...")
 
         # SSE 流式输出生成器
@@ -92,8 +94,10 @@ async def chat(request: AgentChatRequest, user: dict = Depends(get_current_sessi
                     max_tokens=request.max_tokens,
                     model=request.model,
                     provider=request.provider,
-                    session_token=session_token,  # ⚠️ 添加 session_token
-                    save_history=True  # ⚠️ 启用历史保存
+                    session_token=session_token,
+                    save_history=True,
+                    user_id=user_id,  # 传入 user_id
+                    username=username  # 传入 username 用于 Laminar 追踪
                 ):
                     if chunk:
                         chunk_count += 1

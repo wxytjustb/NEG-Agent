@@ -1,8 +1,10 @@
 # Agent 服务层 - 负责流式对话业务逻辑
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from typing import List, Dict, Optional, AsyncGenerator
+from lmnr import observe, Laminar
 from app.services.llm_service import llm_service
 from app.services.redis_service import redis_service
+from app.core.config import settings
 from app.core.session_token import get_session
 from app.prompts.prompts import RIGHTS_PROTECTION_SYSTEM_PROMPT, GENERAL_CHAT_SYSTEM_PROMPT
 import logging
@@ -60,6 +62,7 @@ class AgentService:
         
         return langchain_messages
     
+    @observe(name="agent_chat_stream", tags=["agent", "chat", "streaming"])
     async def chat_stream(
         self,
         messages: List[Dict[str, str]],
@@ -70,7 +73,9 @@ class AgentService:
         system_prompt: Optional[str] = None,
         auto_inject_prompt: bool = True,
         session_token: Optional[str] = None,
-        save_history: bool = True
+        save_history: bool = True,
+        user_id: Optional[str] = None,  # 新增：允许直接传入 user_id
+        username: Optional[str] = None   # 新增：用于 Laminar 追踪
     ) -> AsyncGenerator[str, None]:
         """执行流式对话生成
         
@@ -84,15 +89,43 @@ class AgentService:
             auto_inject_prompt: 是否自动注入系统提示词（默认 False）
             session_token: 会话 token（用于获取 user_id 并存储历史）
             save_history: 是否保存对话历史到 Redis（默认 True）
+            user_id: 直接传入的用户ID（可选）
+            username: 用户名（用于 Laminar 追踪）
             
         Yields:
             生成的文本块
         """
-        user_id = None
+        # 初始化变量
         new_user_message = None  # 记录本次新的用户消息（在加载历史之前提取）
         
-        # 从 session_token 获取 user_id
-        if session_token and save_history:
+        # 设置 Laminar 追踪
+        if user_id:
+            Laminar.set_trace_user_id(str(user_id))
+        if session_token:
+            Laminar.set_trace_session_id(session_token)
+        
+        # 设置元数据
+        if user_id or username:
+            # 提取第一条用户消息作为预览
+            message_preview = ""
+            for msg in messages:
+                if msg.get("role") == "user":
+                    content = msg.get("content", "")
+                    message_preview = content[:50] + "..." if len(content) > 50 else content
+                    break
+            
+            Laminar.set_trace_metadata({
+                "username": username or "Unknown",
+                "user_id": str(user_id) if user_id else None,
+                "session_token": session_token[:20] + "..." if session_token else None,
+                "message_preview": message_preview,
+                "provider": provider or "ollama",
+                "model": model or "default"
+            })
+        
+        # 从 session_token 获取 user_id 和 username
+        actual_session_token = session_token
+        if session_token and save_history and not user_id:
             try:
                 session_data = await get_session(session_token)
                 if session_data:
@@ -166,10 +199,10 @@ class AgentService:
                     # 使用之前提取的新用户消息（避免提取到历史消息）
                     logger.info(f"保存新对话: user={new_user_message[:30]}..., ai={ai_response[:30]}...")
                     
-                    # 追加用户消息和 AI 回复
-                    await redis_service.append_message(user_id, "", "user", new_user_message)
-                    await redis_service.append_message(user_id, "", "assistant", ai_response)
-                    logger.info(f"✅ 对话历史已保存: user_id={user_id}, 用户消息长度={len(new_user_message)}, AI回复长度={len(ai_response)}")
+                    # 追加用户消息和 AI 回复，传入真实的 session_token
+                    await redis_service.append_message(user_id, actual_session_token or "", "user", new_user_message)
+                    await redis_service.append_message(user_id, actual_session_token or "", "assistant", ai_response)
+                    logger.info(f"✅ 对话历史已保存: user_id={user_id}, session_token={actual_session_token}, 用户消息长度={len(new_user_message)}, AI回复长度={len(ai_response)}")
                 except Exception as e:
                     logger.error(f"保存对话历史失败: {str(e)}")
                     

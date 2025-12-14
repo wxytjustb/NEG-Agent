@@ -31,3 +31,4 @@ def init_laminar():
         logger.warning("⚠️ Laminar SDK (lmnr) 未安装，请执行: pip install lmnr")
     except Exception as e:
         logger.error(f"❌ Laminar 初始化失败: {str(e)}")
+ 
