@@ -3,8 +3,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from app.schemas.agent_schema import AgentChatRequest
 from app.services.agent_service import agent_service
+from app.services.redis_service import redis_service
 from app.core.security import get_current_user, get_current_session
-from app.core.session_token import create_session
+from app.core.session_token import create_or_get_session
 import logging
 
 logger = logging.getLogger(__name__)
@@ -29,9 +30,9 @@ async def init_session(user: dict = Depends(get_current_user)):
     - expires_in: 会话过期时间 (秒)
     """
     try:
-        # 创建会话并生成 session_token
+        # 创建或获取会话 (如果用户已有活跃会话则复用)
         from app.core.config import settings
-        session_token = await create_session(user)
+        session_token = await create_or_get_session(user)
         
         logger.info(f"Session initialized for user {user.get('id', 'unknown')}")
         
@@ -73,8 +74,14 @@ async def chat(request: AgentChatRequest, user: dict = Depends(get_current_sessi
         # 将 Pydantic 模型转换为字典
         messages = [msg.model_dump() for msg in request.messages]
         logger.info(f"=== 接收到流式请求 ===")
-        logger.info(f"用户: {user.get('username', 'Unknown')} (ID: {user.get('id', 'Unknown')})")
+        logger.info(f"用户: {user.get('username', 'Unknown')} (ID: {user.get('user_id', 'Unknown')})")
         logger.info(f"消息数量: {len(messages)}, provider={request.provider}")
+        
+        # 获取用户信息（用于 Laminar 追踪和 Redis 保存）
+        user_id = user.get("user_id")
+        session_token = user.get("session_token")
+        username = user.get("username", "Unknown")
+        logger.info(f"session_token: {session_token[:20] if session_token else 'None'}...")
 
         # SSE 流式输出生成器
         async def sse_generator():
@@ -86,7 +93,11 @@ async def chat(request: AgentChatRequest, user: dict = Depends(get_current_sessi
                     temperature=request.temperature,
                     max_tokens=request.max_tokens,
                     model=request.model,
-                    provider=request.provider
+                    provider=request.provider,
+                    session_token=session_token,
+                    save_history=True,
+                    user_id=user_id,  # 传入 user_id
+                    username=username  # 传入 username 用于 Laminar 追踪
                 ):
                     if chunk:
                         chunk_count += 1
@@ -114,3 +125,72 @@ async def chat(request: AgentChatRequest, user: dict = Depends(get_current_sessi
             yield f"data: [ERROR] {str(e)}\n\n"
             yield "data: [DONE]\n\n"
         return StreamingResponse(error_generator(), media_type="text/event-stream")
+
+
+@router.get("/history", summary="获取对话历史")
+async def get_chat_history(session_data: dict = Depends(get_current_session)):
+    """
+    获取当前用户的对话历史记录
+    
+    前端页面加载时调用此接口，自动展示历史对话
+    如果是新用户或无历史记录，返回欢迎消息
+    
+    参数:
+    - session_token: 会话 Token (通过 Query 或 Header 传递)
+    
+    返回:
+    - code: 状态码
+    - msg: 消息
+    - data:
+      - user_id: 用户ID
+      - metadata: 元数据（conversation_id, conversation_count等）
+      - messages: 消息列表
+      - is_new_user: 是否为新用户
+    """
+    try:
+        user_id = session_data.get("user_id")
+        
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="无法获取用户ID"
+            )
+        
+        logger.info(f"获取对话历史: user_id={user_id}")
+        
+        # 获取对话历史消息
+        messages = await redis_service.get_chat_history(user_id)
+        
+        # 获取元数据
+        metadata = await redis_service.get_conversation_metadata(user_id)
+        
+        # 判断是否为新用户（无历史记录）
+        is_new_user = len(messages) == 0
+        
+        # 如果是新用户，添加欢迎消息
+        if is_new_user:
+            messages = [
+                {
+                    "role": "assistant",
+                    "content": "你好，我是AI助手，有什么我可以帮助你的吗？"
+                }
+            ]
+        
+        return {
+            "code": 200,
+            "msg": "获取对话历史成功",
+            "data": {
+                "user_id": user_id,
+                "metadata": metadata or {},
+                "messages": messages,
+                "is_new_user": is_new_user
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取对话历史失败: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取对话历史失败: {str(e)}"
+        )

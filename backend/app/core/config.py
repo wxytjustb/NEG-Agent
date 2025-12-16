@@ -54,9 +54,27 @@ class Settings(BaseSettings):
     # Session Token Configuration
     SESSION_TOKEN_EXPIRE_MINUTES: int = 30  # 30 minutes
     SESSION_REDIS_PREFIX: str = "session:"  # Redis key prefix for sessions
+    USER_SESSION_PREFIX: str = "user_session:"  # Redis key prefix for user-to-session mapping
     
     # Test Access Token (for development/testing only)
     TEST_ACCESS_TOKEN: Optional[str] = None
+
+    # Laminar 配置（LangChain 监控和可视化）
+    LAMINAR_API_KEY: Optional[str] = None
+    LAMINAR_BASE_URL: Optional[str] = None  # 自托管服务器地址
+    LAMINAR_HTTP_PORT: int = 8080  # HTTP 端口
+    LAMINAR_GRPC_PORT: int = 8081  # gRPC 端口
+    LAMINAR_ENABLED: bool = True  # 是否启用
+    LAMINAR_ENVIRONMENT: str = "development"  # 环境名称
+
+    # LangGraph 配置（工作流编排）
+    LANGGRAPH_ENABLED: bool = True
+    LANGGRAPH_MAX_ITERATIONS: int = 10  # 最大迭代次数
+    LANGGRAPH_TIMEOUT: int = 300  # 超时时间（秒）
+    LANGGRAPH_TRACING_ENABLED: bool = True  # 是否启用追踪
+    LANGGRAPH_VERBOSE: bool = True  # 是否输出详细日志
+    LANGGRAPH_CHECKPOINT_ENABLED: bool = False  # 是否启用检查点
+    LANGGRAPH_CHECKPOINT_BACKEND: str = "memory"  # memory/redis/sqlite
 
     
     class Config:

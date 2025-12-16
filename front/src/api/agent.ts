@@ -28,6 +28,35 @@ export interface SessionResponse {
   };
 }
 
+// 对话历史响应
+export interface HistoryResponse {
+  code: number;
+  msg: string;
+  data: {
+    user_id: string;
+    metadata: any;
+    messages: ChatMessage[];
+    is_new_user: boolean;
+  };
+}
+
+// LangGraph 工作流请求参数
+export interface WorkflowChatRequest {
+  message: string;
+}
+
+// LangGraph 工作流响应
+export interface WorkflowChatResponse {
+  code: number;
+  msg: string;
+  data: {
+    user_id: string;
+    user_intent: string;  // AI 分析的用户意图
+    ai_response: string;  // AI 回复
+    error: string | null; // 错误信息
+  };
+}
+
 
 /**
  * 初始化 Agent 会话
@@ -36,20 +65,23 @@ export interface SessionResponse {
  */
 export async function initSession(accessToken: string): Promise<SessionResponse> {
   try {
-    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
-    const response = await fetch(`${API_BASE_URL}/api/agent/init?access_token=${accessToken}`, {
+    const response = await fetch(`http://127.0.0.1:8000/api/agent/init?access_token=${accessToken}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
     });
 
+    const data = await response.json();
+
     if (!response.ok) {
-      throw new Error(`初始化会话失败: ${response.status}`);
+      // 提取后端返回的错误信息
+      const errorMsg = data.detail || `HTTP ${response.status}: ${response.statusText}`;
+      console.error('[Session] 初始化失败:', errorMsg);
+      throw new Error(errorMsg);
     }
 
-    const data = await response.json();
-    console.log('[Session] 会话初始化成功:', data);
+    console.log('[Session] 会话初始化响应:', data);
     return data;
   } catch (error) {
     console.error('Init session error:', error);
@@ -72,8 +104,7 @@ export async function chatStream(
   onComplete?: () => void
 ): Promise<void> {
   try {
-    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
-    const response = await fetch(`${API_BASE_URL}/api/agent/chat?session_token=${sessionToken}`, {
+    const response = await fetch(`http://127.0.0.1:8000/api/agent/chat?session_token=${sessionToken}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -89,6 +120,13 @@ export async function chatStream(
     });
 
     if (!response.ok) {
+      // 如果是 401 错误（session 过期），清除本地缓存
+      if (response.status === 401) {
+        console.warn('[Session] Session 已过期，清除本地缓存');
+        localStorage.removeItem('session_token');
+        localStorage.removeItem('access_token');
+        throw new Error('会话已过期，请刷新页面重新登录');
+      }
       throw new Error(`请求失败: ${response.status}`);
     }
 
@@ -151,8 +189,118 @@ export async function chatStream(
 }
 
 /**
+ * 获取对话历史
+ * @param sessionToken 会话 Token
+ * @returns Promise<HistoryResponse>
+ */
+export async function getChatHistory(sessionToken: string): Promise<HistoryResponse> {
+  try {
+    const response = await fetch(`http://127.0.0.1:8000/api/agent/history?session_token=${sessionToken}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`获取历史失败: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log('[History] 对话历史:', data);
+    return data;
+  } catch (error) {
+    console.error('Get chat history error:', error);
+    throw error;
+  }
+}
+
+/**
  * 健康检查
  */
 export async function ping() {
   return post('/ping');
+}
+
+/**
+ * 开始新对话（增加 conversation_count）
+ * @param accessToken 用户认证 Token
+ * @returns Promise<any>
+ */
+export async function startNewConversation(accessToken: string): Promise<any> {
+  try {
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+    const response = await fetch(`${API_BASE_URL}/api/agent/new-conversation?access_token=${accessToken}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`开始新对话失败: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log('[NewConversation] 新对话已开始:', data);
+    return data;
+  } catch (error) {
+    console.error('Start new conversation error:', error);
+    throw error;
+  }
+}
+
+/**
+ * 调用 LangGraph 工作流进行对话
+ * @param sessionToken 会话 Token
+ * @param message 用户消息
+ * @returns Promise<WorkflowChatResponse>
+ */
+export async function workflowChat(
+  sessionToken: string,
+  message: string
+): Promise<WorkflowChatResponse> {
+  try {
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+    
+    console.log('[WorkflowChat] 发起请求:', { message });
+    
+    const response = await fetch(
+      `${API_BASE_URL}/api/workflow/chat?session_token=${sessionToken}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ message }),
+      }
+    );
+
+    if (!response.ok) {
+      // 如果是 401 错误（session 过期），清除本地缓存
+      if (response.status === 401) {
+        console.warn('[WorkflowChat] Session 已过期，清除本地缓存');
+        localStorage.removeItem('session_token');
+        localStorage.removeItem('access_token');
+        throw new Error('会话已过期，请刷新页面重新登录');
+      }
+      
+      const errorData = await response.json().catch(() => ({}));
+      const errorMsg = errorData.detail || `请求失败: ${response.status}`;
+      throw new Error(errorMsg);
+    }
+
+    const data = await response.json();
+    console.log('[WorkflowChat] 工作流响应:', data);
+    
+    // 检查是否有错误
+    if (data.data?.error) {
+      console.warn('[WorkflowChat] 工作流执行出现错误:', data.data.error);
+    }
+    
+    return data;
+  } catch (error) {
+    console.error('[WorkflowChat] 请求失败:', error);
+    throw error;
+  }
 }

@@ -7,12 +7,9 @@
           <path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </button>
-      <h1 class="chat-title">{{ title }}</h1>
-      <div class="provider-toggle">
-        <button class="workflow-btn" @click="switchToWorkflow" title="切换到工作流模式">
-          🛠️ 工作流
-        </button>
-        <button class="provider-btn" @click="toggleProvider">{{ currentProviderLabel }}</button>
+      <h1 class="chat-title">{{ title }} <span class="workflow-badge">工作流</span></h1>
+      <div class="switch-mode">
+        <button class="mode-btn" @click="switchToNormalChat">切换到普通对话</button>
       </div>
     </div>
 
@@ -37,7 +34,13 @@
             <span class="dot"></span>
           </div>
           <!-- 消息内容 -->
-          <div v-else class="message-text">{{ msg.content }}</div>
+          <div v-else>
+            <!-- 用户意图标签 -->
+            <div v-if="msg.intent" class="intent-tag">
+              🎯 {{ msg.intent }}
+            </div>
+            <div class="message-text">{{ msg.content }}</div>
+          </div>
         </div>
       </div>
     </div>
@@ -47,7 +50,7 @@
       <textarea
         v-model="inputText"
         class="chat-input"
-        placeholder="发送消息..."
+        placeholder="发送消息（工作流模式）..."
         rows="1"
         @keydown.enter.exact.prevent="handleSend"
         :disabled="isLoading"
@@ -58,7 +61,7 @@
         :disabled="!canSend"
         @click="handleSend"
       >
-        {{ isLoading ? '发送中...' : '发送' }}
+        {{ isLoading ? '处理中...' : '发送' }}
       </button>
     </div>
   </div>
@@ -66,12 +69,13 @@
 
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted } from 'vue';
-import { chatStream, initSession, getChatHistory, type ChatMessage as APIChatMessage } from '../api/agent';
+import { initSession, getChatHistory } from '../api/agent';
 
-// 消息类型（扩展支持分隔线）
+// 消息类型（扩展支持意图）
 interface ChatMessage {
   role: 'user' | 'assistant' | 'system' | 'divider';
   content: string;
+  intent?: string;  // AI 分析的用户意图
 }
 
 // Session token management
@@ -79,11 +83,6 @@ const sessionToken = ref<string>('');
 const isInitializing = ref(false);
 
 const title = ref('AI 助手');
-const provider = ref<'ollama' | 'deepseek'>('ollama');
-const currentProviderLabel = computed(() => provider.value === 'ollama' ? 'Ollama' : 'DeepSeek');
-const toggleProvider = () => {
-  provider.value = provider.value === 'ollama' ? 'deepseek' : 'ollama';
-};
 const inputText = ref('');
 const isLoading = ref(false);
 const messagesContainer = ref<HTMLElement | null>(null);
@@ -110,18 +109,18 @@ const goBack = () => {
   window.history.back();
 };
 
-// 切换到工作流模式
-const switchToWorkflow = () => {
+// 切换到普通对话
+const switchToNormalChat = () => {
   const urlParams = new URLSearchParams(window.location.search);
   const accessToken = urlParams.get('access_token');
   if (accessToken) {
-    window.location.href = `/langgraph?access_token=${accessToken}`;
+    window.location.href = `/?access_token=${accessToken}`;
   } else {
-    window.location.href = '/langgraph';
+    window.location.href = '/';
   }
 };
 
-// 发送消息
+// 发送消息（使用工作流流式）
 const handleSend = async () => {
   if (!canSend.value) return;
 
@@ -136,81 +135,127 @@ const handleSend = async () => {
 
   scrollToBottom();
 
-  // 添加助手消息占位符（使用数组索引来确保响应式）
+  // 添加助手消息占位符
   const assistantMessageIndex = messages.value.length;
   messages.value.push({
     role: 'assistant',
-    content: ''
+    content: '',
+    intent: ''  // 用户意图
   });
 
   isLoading.value = true;
   scrollToBottom();
 
   try {
-    // 构建聊天历史（排除当前正在构建的助手消息和分隔线）
-    const chatHistory = messages.value
-      .slice(0, -1)
-      .filter(msg => msg.role !== 'system' && msg.role !== 'divider')
-      .map(msg => ({
-        role: msg.role as 'user' | 'assistant',
-        content: msg.content
-      }));
-
-    // 调用流式接口
-    console.log('[Chat] 开始发送消息，历史消息数:', chatHistory.length);
-    await chatStream(
-      sessionToken.value,  // 第一个参数: session_token
+    console.log('[WorkflowChat] 开始发送消息（流式）...');
+    
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+    const response = await fetch(
+      `${API_BASE_URL}/api/workflow/chat?session_token=${sessionToken.value}`,
       {
-        messages: chatHistory,
-        provider: provider.value,
-        temperature: 0.7,
-        max_tokens: 2000,
-        stream: true
-      },
-      // onMessage - 接收流式数据
-      (chunk: string) => {
-        console.log('[Chat] 收到chunk:', chunk);
-        // 使用索引访问并更新，触发响应式更新
-        const msg = messages.value[assistantMessageIndex];
-        if (msg) {
-          msg.content += chunk;
-        }
-        scrollToBottom();
-      },
-      // onError - 错误处理
-      (error: Error) => {
-        console.error('[Chat] 错误:', error);
-        const msg = messages.value[assistantMessageIndex];
-        if (msg) {
-          // 检查是否是 session 过期错误
-          if (error.message.includes('会话已过期')) {
-            msg.content = `⚠️ 会话已过期，请刷新页面重新登录`;
-            // 清空 sessionToken，防止继续使用
-            sessionToken.value = '';
-          } else {
-            msg.content = `错误: ${error.message}`;
-          }
-        }
-        isLoading.value = false;
-        scrollToBottom();
-      },
-      // onComplete - 完成回调
-      () => {
-        const msg = messages.value[assistantMessageIndex];
-        console.log('[Chat] 流式传输完成，收到内容:', msg?.content);
-        if (msg && !msg.content.trim()) {
-          msg.content = '(无响应)';
-        }
-        isLoading.value = false;
-        scrollToBottom();
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ message: userMessage }),
       }
     );
-  } catch (error) {
-    console.error('Send message error:', error);
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        console.warn('[WorkflowChat] Session 已过期，清除本地缓存');
+        localStorage.removeItem('session_token');
+        localStorage.removeItem('access_token');
+        throw new Error('会话已过期，请刷新页面重新登录');
+      }
+      throw new Error(`请求失败: ${response.status}`);
+    }
+
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder('utf-8');
+
+    if (!reader) {
+      throw new Error('无法获取响应流');
+    }
+
+    let buffer = '';
+    let intentReceived = false;  // 标记是否已收到意图
+
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (done) {
+        console.log('[WorkflowStream] 读取完成');
+        break;
+      }
+
+      // 解码数据块
+      const chunk = decoder.decode(value, { stream: true });
+      buffer += chunk;
+      console.log('[WorkflowStream] 收到数据块:', chunk);
+
+      // 处理SSE格式的数据
+      const lines = buffer.split('\n\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const content = line.substring(6);
+          console.log('[WorkflowStream] 解析数据:', content);
+
+          if (content === '[DONE]') {
+            console.log('[WorkflowStream] 收到结束标记');
+            isLoading.value = false;
+            scrollToBottom();
+            return;
+          } else if (content.startsWith('[ERROR]')) {
+            console.error('[WorkflowStream] 收到错误:', content);
+            const msg = messages.value[assistantMessageIndex];
+            if (msg) {
+              msg.content = content;
+            }
+            isLoading.value = false;
+            scrollToBottom();
+            return;
+          } else if (content.startsWith('intent:')) {
+            // 提取意图
+            const intent = content.substring(7);
+            console.log('[WorkflowStream] 收到意图:', intent);
+            const msg = messages.value[assistantMessageIndex];
+            if (msg) {
+              msg.intent = intent;
+            }
+            intentReceived = true;
+            scrollToBottom();
+          } else if (content) {
+            // 正常内容
+            const msg = messages.value[assistantMessageIndex];
+            if (msg) {
+              msg.content += content;
+            }
+            scrollToBottom();
+          }
+        }
+      }
+    }
+
+    console.log('[WorkflowStream] 流结束');
+    isLoading.value = false;
+    scrollToBottom();
+
+  } catch (error: any) {
+    console.error('[WorkflowChat] 发送失败:', error);
+    
     const msg = messages.value[assistantMessageIndex];
     if (msg) {
-      msg.content = `发送失败: ${error}`;
+      if (error.message && error.message.includes('会话已过期')) {
+        msg.content = `⚠️ 会话已过期，请刷新页面重新登录`;
+        sessionToken.value = '';
+      } else {
+        msg.content = `❌ 发送失败: ${error.message || error}`;
+      }
     }
+    
     isLoading.value = false;
     scrollToBottom();
   }
@@ -234,14 +279,17 @@ const loadChatHistory = async () => {
       if (!response.data.is_new_user && historyMessages.length > 0) {
         // 构建完整消息列表：历史消息 + 分隔线 + 欢迎消息
         messages.value = [
-          ...historyMessages,  // 历史对话
+          ...historyMessages.map(msg => ({
+            role: msg.role,
+            content: msg.content
+          })),
           {
             role: 'divider',
             content: '以上是历史对话'
           },
           {
             role: 'assistant',
-            content: '你好，我是AI助手，有什么我可以帮助你的吗？'
+            content: '你好，我是AI助手（工作流模式），我会先分析你的意图，再给出专业的回复。'
           }
         ];
         console.log('[History] ✅ 历史加载成功，消息数:', historyMessages.length);
@@ -250,31 +298,28 @@ const loadChatHistory = async () => {
         messages.value = [
           {
             role: 'assistant',
-            content: '你好，我是AI助手，有什么我可以帮助你的吗？'
+            content: '你好，我是AI助手（工作流模式），我会先分析你的意图，再给出专业的回复。'
           }
         ];
         console.log('[History] ✅ 新用户，显示欢迎消息');
       }
       
-      console.log('[History] is_new_user:', response.data.is_new_user);
       scrollToBottom();
     } else {
       console.error('[History] 加载失败:', response.msg);
-      // 失败时显示默认欢迎消息
       messages.value = [
         {
           role: 'assistant',
-          content: '你好，我是AI助手，有什么我可以帮助你的吗？'
+          content: '你好，我是AI助手（工作流模式），我会先分析你的意图，再给出专业的回复。'
         }
       ];
     }
   } catch (error) {
     console.error('[History] 加载错误:', error);
-    // 错误时显示默认欢迎消息
     messages.value = [
       {
         role: 'assistant',
-        content: '你好，我是AI助手，有什么我可以帮助你的吗？'
+        content: '你好，我是AI助手（工作流模式），我会先分析你的意图，再给出专业的回复。'
       }
     ];
   }
@@ -291,7 +336,7 @@ const initializeSession = async () => {
 
     if (!ACCESS_TOKEN) {
       console.error('[Session] 未找到 access_token');
-      alert('未找到用户认证信息\n请通过 URL 参数传递 token:\nhttp://localhost:5173/?access_token=your_token');
+      alert('未找到用户认证信息\n请通过 URL 参数传递 token:\nhttp://localhost:5173/langgraph?access_token=your_token');
       return;
     }
 
@@ -299,16 +344,13 @@ const initializeSession = async () => {
     const cachedAccessToken = localStorage.getItem('access_token');
 
     if (cachedAccessToken === ACCESS_TOKEN) {
-      // access_token 没变，使用缓存的 session_token
-      // 注意：如果 Redis 中的 session 已过期，会在发送消息时检测到 401 错误并清除缓存
       const cachedSessionToken = localStorage.getItem('session_token');
       if (cachedSessionToken) {
         sessionToken.value = cachedSessionToken;
-        console.log('[Session] ✅ 使用缓存的 session_token:', cachedSessionToken.substring(0, 20) + '...');
+        console.log('[Session] ✅ 使用缓存的 session_token');
         return;
       }
     } else {
-      // access_token 变了，清除旧缓存
       if (cachedAccessToken) {
         console.log('[Session] ⚠️ 检测到 access_token 变化，清除旧会话缓存');
         localStorage.removeItem('session_token');
@@ -316,43 +358,33 @@ const initializeSession = async () => {
       }
     }
 
-    // 3. 调用初始化接口（后端会自动复用现有 session）
+    // 3. 调用初始化接口
     console.log('[Session] 正在初始化会话...');
     const response = await initSession(ACCESS_TOKEN);
 
     if (response.code === 200) {
       sessionToken.value = response.data.session_token;
-      // 保存 session_token 和 access_token
       localStorage.setItem('session_token', response.data.session_token);
       localStorage.setItem('access_token', ACCESS_TOKEN);
-      console.log('[Session] ✅ 会话初始化成功:', sessionToken.value.substring(0, 20) + '...');
+      console.log('[Session] ✅ 会话初始化成功');
     } else {
       console.error('[Session] 会话初始化失败:', response);
-      const errorMsg = response.msg || '会话初始化失败';
-      alert(`❌ ${errorMsg}\n\n请检查 access_token 是否有效`);
+      alert(`❌ ${response.msg || '会话初始化失败'}\n\n请检查 access_token 是否有效`);
     }
   } catch (error: any) {
     console.error('[Session] 初始化错误:', error);
-    const errorMsg = error.message || '会话初始化失败';
-    alert(`❌ ${errorMsg}
-
-请检查:
-1. access_token 是否有效
-2. 网络连接是否正常
-3. 后端服务是否运行`);
+    alert(`❌ ${error.message || '会话初始化失败'}\n\n请检查网络连接和后端服务`);
   } finally {
     isInitializing.value = false;
   }
 };
 
 onMounted(async () => {
-  console.log('[ChatPage] 💬 组件加载 - 这是普通对话页面！');
+  console.log('[LangGraphChatPage] 🚀 组件加载 - 这是工作流页面！');
   await initializeSession();
-  // 初始化完成后加载历史
   await loadChatHistory();
   scrollToBottom();
 });
-
 </script>
 
 <style scoped>
@@ -372,8 +404,8 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
-  background: #fff;
-  border-bottom: 1px solid #e5e5e5;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   height: 56px;
 }
 
@@ -381,58 +413,56 @@ onMounted(async () => {
   width: 40px;
   height: 40px;
   border: none;
-  background: transparent;
+  background: rgba(255, 255, 255, 0.2);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 8px;
   transition: background 0.2s;
+  color: #fff;
 }
 
 .back-btn:hover {
-  background: #f0f0f0;
+  background: rgba(255, 255, 255, 0.3);
 }
 
 .chat-title {
   font-size: 18px;
   font-weight: 600;
   margin: 0;
-  color: #333;
-}
-
-.provider-toggle {
+  color: #fff;
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.workflow-btn {
+.workflow-badge {
+  font-size: 12px;
+  padding: 2px 8px;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.switch-mode {
+  display: flex;
+  align-items: center;
+}
+
+.mode-btn {
   padding: 6px 12px;
-  border: 1px solid #e5e5e5;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
   color: #fff;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 12px;
-  transition: opacity 0.2s;
+  transition: background 0.2s;
 }
 
-.workflow-btn:hover {
-  opacity: 0.9;
-}
-
-.provider-btn {
-  padding: 6px 10px;
-  border: 1px solid #e5e5e5;
-  background: #fff;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 12px;
-}
-
-.provider-btn:hover {
-  background: #f0f0f0;
+.mode-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 /* 消息列表 */
@@ -459,7 +489,7 @@ onMounted(async () => {
 }
 
 .message-bubble {
-  max-width: 50%;
+  max-width: 70%;
   padding: 12px 16px;
   border-radius: 12px;
   font-size: 14px;
@@ -469,8 +499,8 @@ onMounted(async () => {
 }
 
 .message-bubble.user {
-  background: #95ec69;
-  color: #000;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
   border-bottom-right-radius: 4px;
 }
 
@@ -479,6 +509,18 @@ onMounted(async () => {
   color: #000;
   border: 1px solid #e5e5e5;
   border-bottom-left-radius: 4px;
+}
+
+/* 意图标签 */
+.intent-tag {
+  display: inline-block;
+  padding: 4px 10px;
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  color: #fff;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 8px;
 }
 
 .message-text {
@@ -498,7 +540,7 @@ onMounted(async () => {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #bbb;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   animation: typing-blink 1.4s infinite;
 }
 
@@ -536,7 +578,7 @@ onMounted(async () => {
   min-height: 40px;
   max-height: 120px;
   padding: 10px 12px;
-  border: 1px solid #e5e5e5;
+  border: 2px solid #e5e5e5;
   border-radius: 8px;
   font-size: 14px;
   resize: none;
@@ -548,7 +590,7 @@ onMounted(async () => {
 }
 
 .chat-input:focus {
-  border-color: #07c160;
+  border-color: #667eea;
 }
 
 .chat-input:disabled {
@@ -562,16 +604,16 @@ onMounted(async () => {
   padding: 0 20px;
   border: none;
   border-radius: 8px;
-  background: #07c160;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: #fff;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: opacity 0.2s;
 }
 
 .send-btn:hover:not(.disabled) {
-  background: #06ad56;
+  opacity: 0.9;
 }
 
 .send-btn.disabled {

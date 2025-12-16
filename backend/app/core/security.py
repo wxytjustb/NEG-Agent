@@ -52,7 +52,17 @@ async def verify_token_with_go_server(token: str) -> dict:
                 )
             
             user_data = resp_data.get("data", {})
-            logger.info(f"Token verification successful. User ID: {user_data.get('id', 'unknown')}")
+            
+            # 检查 isValid 字段
+            is_valid = user_data.get("isValid", False)
+            if not is_valid:
+                logger.warning(f"Token is invalid: {resp_data}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=resp_data.get("msg", "Token无效或已过期"),
+                )
+            
+            logger.info(f"Token verification successful. User ID: {user_data.get('appUserId', 'unknown')}")
             return user_data
 
     except httpx.RequestError as e:
@@ -100,8 +110,13 @@ async def get_current_session(
     # 刷新会话过期时间
     await refresh_session(token)
     
-    # 返回用户信息
-    return session_data.get("user", {})
+    # 返回完整的会话信息（包含 session_token 和 user_id）
+    return {
+        "session_token": token,
+        "user_id": session_data.get("user_id"),
+        "username": session_data.get("username"),
+        **session_data
+    }
 
 
 async def get_current_user(

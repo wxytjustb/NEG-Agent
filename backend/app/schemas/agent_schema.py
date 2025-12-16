@@ -17,3 +17,4 @@ class AgentChatRequest(BaseModel):
     max_tokens: Optional[int] = Field(2000, description="最大生成token数", gt=0)
     model: Optional[str] = Field(None, description="指定模型名称")
     stream: Optional[bool] = Field(False, description="是否以SSE流式输出")
+    use_history: Optional[bool] = Field(True, description="是否使用Redis中的对话历史")
