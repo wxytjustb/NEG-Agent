@@ -362,3 +362,6 @@ pnpm-lock.yaml
 .storybook-out/
 storybook-static/
 front/package-lock.json
+
+
+.chroma_data
