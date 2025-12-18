@@ -57,9 +57,9 @@ study_project/
 
 | 服务 | 地址 | 端口 |
 |------|------|------|
-| ChromaDB | 192.168.3.100 | 8880 |
-| Milvus | 192.168.3.100 | 19530 |
-| Ollama | 192.168.3.100 | 11434 |
+| ChromaDB | your_chroma_host | 8880 |
+| Milvus | your_milvus_host | 19530 |
+| Ollama | your_ollama_host | 11434 |
 
 ### 2. 安装依赖
 
