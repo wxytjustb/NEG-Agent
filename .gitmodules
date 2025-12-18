@@ -1,0 +1,3 @@
+[submodule "study_project"]
+	path = study_project
+	url = https://github.com/congde/emotional_chat
