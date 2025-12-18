@@ -5,20 +5,20 @@
 """
 
 # ==================== ChromaDB 服务器配置 ====================
-CHROMA_HOST = "192.168.3.100"
-CHROMA_PORT = 8880  # Docker Compose 映射的宿主机端口
+CHROMA_HOST = "your_chroma_host"
+CHROMA_PORT = "your_chroma_port"  # Docker Compose 映射的宿主机端口
 
 # ==================== Milvus 服务器配置 ====================
-MILVUS_HOST = "192.168.3.100"
-MILVUS_PORT = 19530
+MILVUS_HOST = "your_milvus_host"
+MILVUS_PORT = "your_milvus_port"
 
 # ==================== 集合配置 ====================
 COLLECTION_NAME = "demo_collection"
 
 # ==================== Ollama 配置 (ChromaDB 和 Milvus 共用) ====================
 OLLAMA_MODEL = "nomic-embed-text" # embedding model
-OLLAMA_HOST = "192.168.3.100"
-OLLAMA_PORT = 11434
+OLLAMA_HOST = "your_ollama_host"
+OLLAMA_PORT = "your_ollama_port"
 
 # ChromaDB 使用的 Ollama URL
 OLLAMA_EMBEDDINGS_URL = f"http://{OLLAMA_HOST}:{OLLAMA_PORT}/api/embeddings"
