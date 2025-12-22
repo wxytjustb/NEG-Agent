@@ -67,6 +67,14 @@ class Settings(BaseSettings):
     LAMINAR_ENABLED: bool = True  # 是否启用
     LAMINAR_ENVIRONMENT: str = "development"  # 环境名称
 
+    # ChromaDB 配置（向量数据库）
+    CHROMA_HOST: str = "localhost"  # ChromaDB 服务器地址
+    CHROMA_PORT: int = 8001  # ChromaDB 服务器端口（对应 docker-compose 中的主机端口）
+    CHROMA_USE_HTTP: str = "true"  # 是否使用 HTTP 客户端
+    CHROMA_PERSIST_DIRECTORY: str = "./chroma_data"  # 本地持久化目录（仅本地模式）
+    CHROMADB_COLLECTION: str = "short_term_memory"  # 短期记忆集合名称
+    CHROMADB_DISTANCE_METRIC: str = "cosine"  # 距离度量方式: cosine/l2/ip
+
     # LangGraph 配置（工作流编排）
     LANGGRAPH_ENABLED: bool = True
     LANGGRAPH_MAX_ITERATIONS: int = 10  # 最大迭代次数

@@ -2,11 +2,11 @@
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from typing import List, Dict, Optional, AsyncGenerator
 from lmnr import observe, Laminar
-from app.services.llm_service import llm_service
+from app.modules.llm.core import llm_core
 from app.services.redis_service import redis_service
 from app.core.config import settings
 from app.core.session_token import get_session
-from app.prompts.prompts import RIGHTS_PROTECTION_SYSTEM_PROMPT, GENERAL_CHAT_SYSTEM_PROMPT
+from app.utils.prompt import ANRAN_SYSTEM_PROMPT  # 使用完整版 Prompt
 import logging
 
 logger = logging.getLogger(__name__)
@@ -17,9 +17,9 @@ class AgentService:
     
     def __init__(self):
         """初始化 Agent 服务"""
-        self.llm_service = llm_service
-        # 默认系统提示词
-        self.default_system_prompt = RIGHTS_PROTECTION_SYSTEM_PROMPT
+        self.llm_core = llm_core
+        # 默认系统提示词（使用"安然"角色）
+        self.default_system_prompt = ANRAN_SYSTEM_PROMPT
     
     def _convert_messages(
         self, 
@@ -84,7 +84,7 @@ class AgentService:
             temperature: 温度参数
             max_tokens: 最大token数
             model: 模型名称
-            provider: 指定使用的提供商 ('deepseek' 或 'ollama')
+            provider: 指定使用的提供商（目前仅支持 'deepseek'）
             system_prompt: 自定义系统提示词
             auto_inject_prompt: 是否自动注入系统提示词（默认 False）
             session_token: 会话 token（用于获取 user_id 并存储历史）
@@ -119,7 +119,7 @@ class AgentService:
                 "user_id": str(user_id) if user_id else None,
                 "session_token": session_token[:20] + "..." if session_token else None,
                 "message_preview": message_preview,
-                "provider": provider or "ollama",
+                "provider": provider or "deepseek",
                 "model": model or "default"
             })
         
@@ -157,7 +157,7 @@ class AgentService:
                 logger.error(f"获取 session 或历史失败: {str(e)}")
         try:
             # 创建 LLM 实例
-            llm = self.llm_service.create_llm(
+            llm = self.llm_core.create_llm(
                 temperature=temperature,
                 max_tokens=max_tokens,
                 model=model,

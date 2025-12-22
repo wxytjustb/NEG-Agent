@@ -2,22 +2,47 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.api.agent import router as agent_router
-from app.api.workflow import router as workflow_router
 from app.initialize.redis import init_redis, close_redis
 from app.initialize.laminar import init_laminar
+from app.initialize.chromadb import init_chromadb, close_chromadb
+from app.core.config import settings
 import uvicorn
 import logging
 
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    init_laminar()  # 初始化 Laminar
+    print("🚀 正在启动 NEG-Agent 服务...")
+    
+    # 初始化 Laminar
+    init_laminar()
+    
+    # 初始化 ChromaDB
+    try:
+        init_chromadb()
+        print("✅ ChromaDB 连接成功")
+    except Exception as e:
+        print(f"⚠️  ChromaDB 连接失败: {e}")
+    
+    # 初始化 Redis
     await init_redis()
+    
+    print(f"✅ 服务启动成功: http://{settings.HOST}:{settings.PORT}")
+    print(f"📝 API 文档: http://{settings.HOST}:{settings.PORT}/docs")
+    
     yield
+    
     # Shutdown
+    close_chromadb()
     await close_redis()
+    print("✅ 服务已关闭")
 
 app = FastAPI(title="Agent API", version="1.0.0", lifespan=lifespan)
 
@@ -32,7 +57,6 @@ app.add_middleware(
 
 # 注册路由
 app.include_router(agent_router)
-app.include_router(workflow_router)
 
 @app.get("/")
 def root():

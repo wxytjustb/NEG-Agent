@@ -8,12 +8,7 @@
         </svg>
       </button>
       <h1 class="chat-title">{{ title }}</h1>
-      <div class="provider-toggle">
-        <button class="workflow-btn" @click="switchToWorkflow" title="切换到工作流模式">
-          🛠️ 工作流
-        </button>
-        <button class="provider-btn" @click="toggleProvider">{{ currentProviderLabel }}</button>
-      </div>
+      <div class="header-spacer"></div>
     </div>
 
     <!-- 消息列表 -->
@@ -79,17 +74,18 @@ const sessionToken = ref<string>('');
 const isInitializing = ref(false);
 
 const title = ref('AI 助手');
-const provider = ref<'ollama' | 'deepseek'>('ollama');
-const currentProviderLabel = computed(() => provider.value === 'ollama' ? 'Ollama' : 'DeepSeek');
-const toggleProvider = () => {
-  provider.value = provider.value === 'ollama' ? 'deepseek' : 'ollama';
-};
+const provider = ref<'deepseek'>('deepseek');  // 固定为 deepseek
 const inputText = ref('');
 const isLoading = ref(false);
 const messagesContainer = ref<HTMLElement | null>(null);
 
-// 消息列表（默认为空，由历史接口加载）
-const messages = ref<ChatMessage[]>([]);
+// 消息列表（初始显示欢迎消息）
+const messages = ref<ChatMessage[]>([
+  {
+    role: 'assistant',
+    content: '你好，我是安然，你的心理陪伴者。我在这里倾听你的心声，如果你在工作中遇到困扰或不公，随时可以跟我说。'
+  }
+]);
 
 // 是否可以发送
 const canSend = computed(() => {
@@ -110,16 +106,7 @@ const goBack = () => {
   window.history.back();
 };
 
-// 切换到工作流模式
-const switchToWorkflow = () => {
-  const urlParams = new URLSearchParams(window.location.search);
-  const accessToken = urlParams.get('access_token');
-  if (accessToken) {
-    window.location.href = `/langgraph?access_token=${accessToken}`;
-  } else {
-    window.location.href = '/langgraph';
-  }
-};
+
 
 // 发送消息
 const handleSend = async () => {
@@ -241,7 +228,7 @@ const loadChatHistory = async () => {
           },
           {
             role: 'assistant',
-            content: '你好，我是AI助手，有什么我可以帮助你的吗？'
+            content: '你好，我是安然，你的心理陪伴者。我在这里倾听你的心声，如果你在工作中遇到困扰或不公，随时可以跟我说。'
           }
         ];
         console.log('[History] ✅ 历史加载成功，消息数:', historyMessages.length);
@@ -250,7 +237,7 @@ const loadChatHistory = async () => {
         messages.value = [
           {
             role: 'assistant',
-            content: '你好，我是AI助手，有什么我可以帮助你的吗？'
+            content: '你好，我是安然，你的心理陪伴者。我在这里倾听你的心声，如果你在工作中遇到困扰或不公，随时可以跟我说。'
           }
         ];
         console.log('[History] ✅ 新用户，显示欢迎消息');
@@ -264,7 +251,7 @@ const loadChatHistory = async () => {
       messages.value = [
         {
           role: 'assistant',
-          content: '你好，我是AI助手，有什么我可以帮助你的吗？'
+          content: '你好，我是安然，你的心理陪伴者。我在这里倾听你的心声，如果你在工作中遇到困扰或不公，随时可以跟我说。'
         }
       ];
     }
@@ -274,7 +261,7 @@ const loadChatHistory = async () => {
     messages.value = [
       {
         role: 'assistant',
-        content: '你好，我是AI助手，有什么我可以帮助你的吗？'
+        content: '你好，我是安然，你的心理陪伴者。我在这里倾听你的心声，如果你在工作中遇到困扰或不公，随时可以跟我说。'
       }
     ];
   }
@@ -399,40 +386,12 @@ onMounted(async () => {
   font-weight: 600;
   margin: 0;
   color: #333;
+  flex: 1;
+  text-align: center;
 }
 
-.provider-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.workflow-btn {
-  padding: 6px 12px;
-  border: 1px solid #e5e5e5;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: #fff;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 12px;
-  transition: opacity 0.2s;
-}
-
-.workflow-btn:hover {
-  opacity: 0.9;
-}
-
-.provider-btn {
-  padding: 6px 10px;
-  border: 1px solid #e5e5e5;
-  background: #fff;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 12px;
-}
-
-.provider-btn:hover {
-  background: #f0f0f0;
+.header-spacer {
+  width: 40px;  /* 与返回按钮同宽，实现居中对称 */
 }
 
 /* 消息列表 */
