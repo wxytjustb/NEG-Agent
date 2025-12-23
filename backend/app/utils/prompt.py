@@ -64,15 +64,12 @@ CONVERSATION_TEMPLATE = """{system_prompt}
 
 ---
 当前用户画像：
-公司： { company }
-年龄：{ age }
-性别：{ gender }
-当前对话意图： { current_intent }
+公司：{company}
+年龄：{age}
+性别：{gender}
+当前对话意图：{current_intent}
 
 ---
-相关历史对话参考：
-{long_term_memory}
-
 对话历史：
 {history}
 
@@ -135,8 +132,7 @@ def get_conversation_template():
 
 def build_full_prompt(
     user_input, 
-    history_text="", 
-    long_term_memory="",
+    history_text="",
     company="未知",
     age="未知",
     gender="未知",
@@ -148,7 +144,6 @@ def build_full_prompt(
     Args:
         user_input: 用户输入
         history_text: 对话历史
-        long_term_memory: 长期记忆（从向量数据库检索）
         company: 用户公司
         age: 用户年龄
         gender: 用户性别
@@ -159,18 +154,12 @@ def build_full_prompt(
     """
     template = get_conversation_template()
     
-    # 格式化长期记忆
-    memory_section = ""
-    if long_term_memory:
-        memory_section = f"相关历史对话参考：\n{long_term_memory}"
-    
     return template.format(
         system_prompt=ANRAN_SYSTEM_PROMPT,
         company=company,
         age=age,
         gender=gender,
         current_intent=current_intent,
-        long_term_memory=memory_section,
         history=history_text.strip() if history_text else "（这是新对话的开始）",
         input=user_input
     )

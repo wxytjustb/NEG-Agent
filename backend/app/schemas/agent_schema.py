@@ -18,3 +18,10 @@ class AgentChatRequest(BaseModel):
     model: Optional[str] = Field(None, description="指定模型名称")
     stream: Optional[bool] = Field(False, description="是否以SSE流式输出")
     use_history: Optional[bool] = Field(True, description="是否使用Redis中的对话历史")
+
+
+class WorkflowChatRequest(BaseModel):
+    """Workflow 对话请求（基于 LangGraph）"""
+    user_input: str = Field(..., description="用户输入内容")
+    history_text: Optional[str] = Field("", description="对话历史文本")
+    long_term_memory: Optional[str] = Field("", description="长期记忆文本")

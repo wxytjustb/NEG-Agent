@@ -26,28 +26,6 @@ services:
     networks:
       - backend_network
 
-  # ChromaDB 向量数据库
-  chromadb:
-    image: chromadb/chroma:1.3.7
-    container_name: chromadb
-    ports:
-      - "8001:8000"
-    volumes:
-      - ./.chroma_data:/chroma/chroma
-    environment:
-      - IS_PERSISTENT=TRUE
-      - ANONYMIZED_TELEMETRY=FALSE
-      - ALLOW_RESET=FALSE
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "python -c 'import requests; requests.get(\"http://localhost:8000/api/v1/heartbeat\")' || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    networks:
-      - backend_network
-
 networks:
   backend_network:
     driver: bridge

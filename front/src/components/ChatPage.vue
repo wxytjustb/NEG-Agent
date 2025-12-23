@@ -7,8 +7,15 @@
           <path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </button>
-      <h1 class="chat-title">{{ title }}</h1>
-      <div class="header-spacer"></div>
+      <h1 class="chat-title">{{ title }} {{ useWorkflowAPI ? '(Workflow)' : '' }}</h1>
+      <button 
+        class="test-btn" 
+        :class="{ active: useWorkflowAPI }"
+        @click="toggleWorkflowAPI" 
+        :disabled="!sessionToken"
+      >
+        {{ useWorkflowAPI ? 'Workflow' : 'Test' }}
+      </button>
     </div>
 
     <!-- 消息列表 -->
@@ -79,6 +86,9 @@ const inputText = ref('');
 const isLoading = ref(false);
 const messagesContainer = ref<HTMLElement | null>(null);
 
+// 是否使用 Workflow API (chat1)
+const useWorkflowAPI = ref(false);
+
 // 消息列表（初始显示欢迎消息）
 const messages = ref<ChatMessage[]>([
   {
@@ -106,6 +116,24 @@ const goBack = () => {
   window.history.back();
 };
 
+// 切换 Workflow API 模式
+const toggleWorkflowAPI = () => {
+  useWorkflowAPI.value = !useWorkflowAPI.value;
+  console.log('[Mode] 切换到:', useWorkflowAPI.value ? 'Workflow API (/api/agent/chat1)' : '普通 API (/api/agent/chat)');
+  
+  // 显示提示
+  const mode = useWorkflowAPI.value ? 'Workflow 模式' : '普通模式';
+  const api = useWorkflowAPI.value ? '/api/agent/chat1' : '/api/agent/chat';
+  alert(`✅ 已切换到 ${mode}
+
+接口: ${api}
+
+特性:
+${useWorkflowAPI.value ? 
+    '- 用户信息获取\n- 意图识别\n- 记忆检索 (ChromaDB)\n- LLM 回答\n- 记忆保存' : 
+    '- 流式对话\n- 历史记录'}`);
+};
+
 
 
 // 发送消息
@@ -123,6 +151,106 @@ const handleSend = async () => {
 
   scrollToBottom();
 
+  // 根据模式选择不同的处理方式
+  if (useWorkflowAPI.value) {
+    // Workflow API 模式 (/api/agent/chat1) - 非流式
+    await handleWorkflowSend(userMessage);
+  } else {
+    // 普通流式 API 模式 (/api/agent/chat)
+    await handleStreamSend(userMessage);
+  }
+};
+
+// Workflow API 发送（流式）
+const handleWorkflowSend = async (userMessage: string) => {
+  // 添加助手消息占位符
+  const assistantMessageIndex = messages.value.length;
+  messages.value.push({
+    role: 'assistant',
+    content: ''
+  });
+
+  isLoading.value = true;
+  scrollToBottom();
+
+  try {
+    console.log('[Workflow] 调用 /api/agent/chat1 流式接口...');
+    
+    const urlWithToken = `http://localhost:8000/api/agent/chat1?session_token=${sessionToken.value}`;
+    
+    const response = await fetch(urlWithToken, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        user_input: userMessage,
+        history_text: '',
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+
+    if (!reader) {
+      throw new Error('无法获取响应流');
+    }
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value, { stream: true });
+      const lines = chunk.split('\n');
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6);
+          
+          if (data === '[DONE]') {
+            console.log('[Workflow] ✅ 流式传输完成');
+            break;
+          }
+          
+          if (data.startsWith('[ERROR]')) {
+            const errorMsg = data.slice(8);
+            const msg = messages.value[assistantMessageIndex];
+            if (msg) {
+              msg.content = `错误: ${errorMsg}`;
+            }
+            break;
+          }
+          
+          // 正常的文本块
+          const msg = messages.value[assistantMessageIndex];
+          if (msg) {
+            msg.content += data;
+          }
+          scrollToBottom();
+        }
+      }
+    }
+    
+    console.log('[Workflow] 对话完成');
+    
+  } catch (error: any) {
+    console.error('[Workflow] 错误:', error);
+    const msg = messages.value[assistantMessageIndex];
+    if (msg) {
+      msg.content = `发送失败: ${error.message}`;
+    }
+  } finally {
+    isLoading.value = false;
+    scrollToBottom();
+  }
+};
+
+// 普通流式 API 发送
+const handleStreamSend = async (userMessage: string) => {
   // 添加助手消息占位符（使用数组索引来确保响应式）
   const assistantMessageIndex = messages.value.length;
   messages.value.push({
@@ -392,6 +520,36 @@ onMounted(async () => {
 
 .header-spacer {
   width: 40px;  /* 与返回按钮同宽，实现居中对称 */
+}
+
+.test-btn {
+  min-width: 80px;
+  height: 32px;
+  padding: 0 16px;
+  border: 1px solid #07c160;
+  background: transparent;
+  color: #07c160;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.test-btn.active {
+  background: #07c160;
+  color: #fff;
+  border-color: #07c160;
+}
+
+.test-btn:hover:not(:disabled):not(.active) {
+  background: #f0f9f4;
+}
+
+.test-btn:disabled {
+  border-color: #c9c9c9;
+  color: #c9c9c9;
+  cursor: not-allowed;
 }
 
 /* 消息列表 */

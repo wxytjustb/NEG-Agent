@@ -53,7 +53,6 @@ class ChromaDBCore:
                     "created_at": datetime.now().isoformat()
                 }
             )
-            logger.info(f"✅ 集合 '{self.collection_name}' 已就绪 (距离度量: {distance_metric})")
             return collection
         except Exception as e:
             logger.error(f"❌ 创建/获取集合失败: {e}")
@@ -66,7 +65,8 @@ class ChromaDBCore:
         role: str,
         content: str,
         message_id: Optional[str] = None,
-        timestamp: Optional[str] = None
+        timestamp: Optional[str] = None,
+        check_duplicate: bool = True  # 新增：是否检查重复
     ) -> str:
         """
         添加消息到短期记忆
@@ -78,6 +78,7 @@ class ChromaDBCore:
             content: 消息内容
             message_id: 消息 ID（可选，自动生成）
             timestamp: 时间戳（可选，自动生成）
+            check_duplicate: 是否检查重复（默认检查）
             
         Returns:
             str: 消息 ID
@@ -85,13 +86,40 @@ class ChromaDBCore:
         try:
             collection = self._get_or_create_collection()
             
+            # 生成时间戳（在检查重复之前）
+            if not timestamp:
+                timestamp = datetime.now().isoformat()
+            
+            # 防重复检查：检查最近 5 秒内是否有相同的消息
+            if check_duplicate:
+                # 获取最近的 3 条消息（按时间降序）
+                recent_messages = self.get_all_messages(
+                    user_id=user_id,
+                    session_id=session_id,
+                    limit=3
+                )
+                
+                # 检查是否有完全相同的消息（role 和 content 都相同）
+                current_time = datetime.fromisoformat(timestamp)
+                for msg in recent_messages:
+                    if msg.get("role") == role and msg.get("content") == content:
+                        # 检查时间间隔（防止 5 秒内重复）
+                        msg_timestamp = msg.get("timestamp")
+                        msg_id = msg.get("id")
+                        
+                        if msg_timestamp and msg_id:
+                            msg_time = datetime.fromisoformat(msg_timestamp)
+                            time_diff = (current_time - msg_time).total_seconds()
+                            
+                            if abs(time_diff) < 5:  # 5 秒内的重复消息
+                                logger.warning(f"⚠️ 检测到重复消息，跳过保存: {content[:30]}...")
+                                logger.warning(f"   时间间隔: {abs(time_diff):.2f} 秒")
+                                # 返回已存在的消息 ID
+                                return msg_id
+            
             # 生成消息 ID
             if not message_id:
                 message_id = f"{user_id}_{session_id}_{int(datetime.now().timestamp() * 1000)}"
-            
-            # 生成时间戳
-            if not timestamp:
-                timestamp = datetime.now().isoformat()
             
             # 元数据（用于过滤和查询）
             metadata = {
@@ -108,7 +136,6 @@ class ChromaDBCore:
                 ids=[message_id]
             )
             
-            logger.info(f"✅ 消息已存储: {message_id[:50]}...")
             return message_id
             
         except Exception as e:
@@ -187,7 +214,6 @@ class ChromaDBCore:
                     
                     formatted_results.append(result_item)
             
-            logger.info(f"✅ 检索到 {len(formatted_results)} 条记忆")
             return formatted_results
             
         except Exception as e:
@@ -249,7 +275,6 @@ class ChromaDBCore:
             if limit:
                 formatted_results = formatted_results[:limit]
             
-            logger.info(f"✅ 获取到 {len(formatted_results)} 条消息")
             return formatted_results
             
         except Exception as e:
@@ -291,10 +316,8 @@ class ChromaDBCore:
             if results and results['ids']:
                 collection.delete(ids=results['ids'])
                 count = len(results['ids'])
-                logger.info(f"✅ 已删除 {count} 条会话记忆")
                 return count
             
-            logger.info("⚠️ 未找到需要删除的记忆")
             return 0
             
         except Exception as e:
@@ -332,7 +355,6 @@ class ChromaDBCore:
             )
             
             count = len(results['ids']) if results and results['ids'] else 0
-            logger.info(f"✅ 会话消息数: {count}")
             return count
             
         except Exception as e:

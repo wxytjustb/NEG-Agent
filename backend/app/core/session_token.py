@@ -42,6 +42,10 @@ async def create_session(user_data: Dict[str, Any]) -> str:
         "username": user_data.get('username', ''),
         "created_at": datetime.now().isoformat(),
         "last_activity": datetime.now().isoformat(),
+        # 添加用户画像字段（从 Golang Server 返回的数据中提取）
+        "company": user_data.get('companyName', '未知'),
+        "age": str(user_data.get('age', '未知')),
+        "gender": user_data.get('gender', '未知'),
     }
     
     try:
@@ -179,6 +183,45 @@ async def delete_session(session_token: str) -> bool:
         return False
 
 
+async def update_session(session_token: str, update_data: Dict[str, Any]) -> bool:
+    """
+    更新会话信息（合并新数据）
+    
+    Args:
+        session_token: 会话 Token
+        update_data: 要更新的数据字典
+    
+    Returns:
+        bool: 更新成功返回 True,失败返回 False
+    """
+    cache_key = f"{settings.SESSION_REDIS_PREFIX}{session_token}"
+    
+    try:
+        # 获取当前会话数据
+        session_data = await get_session(session_token)
+        if not session_data:
+            logger.warning(f"Cannot update non-existent session: {session_token[:20]}...")
+            return False
+        
+        # 合并新数据
+        session_data.update(update_data)
+        
+        # 更新最后活动时间
+        session_data["last_activity"] = datetime.now().isoformat()
+        
+        # 重新设置到 Redis 并刷新过期时间
+        await redis.redis_client.set(
+            cache_key,
+            json.dumps(session_data),
+            ex=settings.SESSION_TOKEN_EXPIRE_MINUTES * 60
+        )
+        logger.info(f"Session updated: {session_token[:20]}... with data: {list(update_data.keys())}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to update session: {e}")
+        return False
+
+
 async def get_session_by_user_id(user_id: str) -> Optional[str]:
     """
     根据用户 ID 查找现有的会话 Token
@@ -232,6 +275,26 @@ async def create_or_get_session(user_data: Dict[str, Any]) -> str:
     existing_session = await get_session_by_user_id(user_id)
     if existing_session:
         logger.info(f"Reusing existing session for user {user_id}")
+        
+        # 获取现有 session 的数据
+        session_data = await get_session(existing_session)
+        
+        # 检查是否需要更新用户画像（如果旧 session 没有画像字段）
+        needs_update = False
+        if session_data:
+            if not session_data.get('company') or session_data.get('company') == '未知':
+                needs_update = True
+                logger.info(f"⚠️ 旧 Session 缺少用户画像，将更新: user_id={user_id}")
+        
+        # 如果需要更新，添加用户画像字段
+        if needs_update:
+            await update_session(existing_session, {
+                "company": user_data.get('companyName', '未知'),
+                "age": str(user_data.get('age', '未知')),
+                "gender": user_data.get('gender', '未知'),
+            })
+            logger.info(f"✅ 已更新 Session 的用户画像: company={user_data.get('companyName')}, age={user_data.get('age')}, gender={user_data.get('gender')}")
+        
         # 刷新会话过期时间
         await refresh_session(existing_session)
         return existing_session
@@ -247,6 +310,10 @@ async def create_or_get_session(user_data: Dict[str, Any]) -> str:
         "username": user_data.get('username', ''),
         "created_at": datetime.now().isoformat(),
         "last_activity": datetime.now().isoformat(),
+        # 添加用户画像字段（从 Golang Server 返回的数据中提取）
+        "company": user_data.get('companyName', '未知'),
+        "age": str(user_data.get('age', '未知')),
+        "gender": user_data.get('gender', '未知'),
     }
     
     try:
