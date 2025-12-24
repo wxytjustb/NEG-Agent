@@ -1,4 +1,3 @@
-# 对话工作流 - 使用 LangGraph 编排完整对话流程
 from langgraph.graph import END  # type: ignore
 from app.modules.workflow.core.graph import WorkflowGraphBuilder
 from app.modules.workflow.core.state import WorkflowState
@@ -10,18 +9,6 @@ from typing import Dict, Any, Optional
 import logging
 
 logger = logging.getLogger(__name__)
-
-# Laminar 可观测性追踪
-try:
-    from lmnr import observe, Laminar
-    LAMINAR_AVAILABLE = True
-except ImportError:
-    LAMINAR_AVAILABLE = False
-    # 定义空装饰器，避免报错
-    def observe(**kwargs):
-        def decorator(func):
-            return func
-        return decorator
 
 
 def intent_recognition_node(state: WorkflowState) -> Dict[str, Any]:
@@ -110,81 +97,65 @@ def get_chat_workflow():
     return _chat_workflow
 
 
-@observe(name="run_chat_workflow", tags=["workflow", "chat", "langgraph"])
 def run_chat_workflow(
     user_input: str,
     session_id: str,
-    history_text: str = "",
-    long_term_memory: str = "",
     user_id: Optional[str] = None,
     username: Optional[str] = None
 ) -> Dict[str, Any]:
-    """运行对话工作流（使用 session_id 版本 + Laminar 追踪）
-    
-    Args:
-        user_input: 用户输入
-        session_id: 会话ID（会自动从 session 中获取用户信息）
-        history_text: 对话历史
-        long_term_memory: 长期记忆
-        user_id: 用户ID（用于 Laminar 追踪）
-        username: 用户名（用于 Laminar 追踪）
-        
-    Returns:
-        包含 LLM 回答的结果字典
-        
-    Example:
-        >>> # 首次请求：需要先通过 /api/agent/init 初始化会话
-        >>> # 初始化时会使用 access_token 获取用户信息并缓存到 session
-        >>> 
-        >>> # 后续请求：直接使用 session_id
-        >>> result = run_chat_workflow(
-        ...     user_input="我今天被差评了",
-        ...     session_id="sess_abc123...",
-        ...     user_id="334",
-        ...     username="张三"
-        ... )
-        >>> print(result["llm_response"])
-        >>> print(f"用户公司: {result['company']}, 年龄: {result['age']}")
-    """
-    logger.info("========== 开始运行对话工作流 ==========")
-    logger.info(f"会话ID: {session_id}")
-    logger.info(f"用户输入: {user_input[:50]}...")
-    
-    # 设置 Laminar 追踪信息
-    if LAMINAR_AVAILABLE:
-        if user_id:
-            Laminar.set_trace_user_id(str(user_id))
-        if session_id:
-            Laminar.set_trace_session_id(session_id)
-        
-        # 设置元数据
-        Laminar.set_trace_metadata({
-            "username": username or "Unknown",
-            "user_id": str(user_id) if user_id else None,
-            "session_id": session_id[:20] + "..." if session_id else None,
-            "message_preview": user_input[:50] + "..." if len(user_input) > 50 else user_input,
-            "workflow_type": "langgraph_chat"
-        })
-    
-    # 1. 准备初始状态（只需 session_id，用户信息会自动从 session 中获取）
+    """运行对话工作流（非流式，仅用于测试）"""
     initial_state: WorkflowState = {
         "user_input": user_input,
         "session_id": session_id,
-        "history_text": history_text,
-        "long_term_memory": long_term_memory,
+        "is_streaming": True
+    }
+    
+    if user_id:
+        initial_state["user_id"] = user_id
+    
+    # 通过 config 传递 metadata，Laminar 会自动追踪
+    config = {
+        "metadata": {
+            "workflow": "chat_workflow",
+            "message": user_input[:50] + "..." if len(user_input) > 50 else user_input,
+            "session_id": session_id,
+            "user_id": str(user_id) if user_id else None,
+            "username": username or "Unknown"
+        }
+    }
+    
+    return get_chat_workflow().invoke(initial_state, config=config)
+
+
+async def run_chat_workflow_streaming(
+    user_input: str,
+    session_id: str,
+    user_id: Optional[str] = None,
+    username: Optional[str] = None
+):
+    """运行对话工作流（流式版本）"""
+    initial_state: WorkflowState = {
+        "user_input": user_input,
+        "session_id": session_id,
         "is_streaming": False
     }
     
-    # 2. 获取工作流
-    workflow = get_chat_workflow()
+    if user_id:
+        initial_state["user_id"] = user_id
     
-    # 3. 执行工作流
-    result = workflow.invoke(initial_state)
+    # 通过 config 传递 metadata，Laminar 会自动追踪
+    config = {
+        "metadata": {
+            "workflow": "chat_workflow",
+            "message": user_input[:50] + "..." if len(user_input) > 50 else user_input,
+            "session_id": session_id,
+            "user_id": str(user_id) if user_id else None,
+            "username": username or "Unknown"
+        }
+    }
     
-    logger.info("========== 对话工作流执行完成 ==========")
-    logger.info(f"用户ID: {result.get('user_id', 'N/A')}")
-    logger.info(f"用户画像: 公司={result.get('company')}, 年龄={result.get('age')}, 性别={result.get('gender')}")
-    logger.info(f"识别意图: {result.get('intent', 'N/A')} (置信度: {result.get('intent_confidence', 0):.2f})")
-    logger.info(f"回答长度: {len(result.get('llm_response', ''))} 字符")
-    
-    return result
+    async for event in get_chat_workflow().astream_events(initial_state, config=config, version="v2"):
+        if event["event"] == "on_chat_model_stream":
+            content = event["data"]["chunk"].content
+            if content:
+                yield content

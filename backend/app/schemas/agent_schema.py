@@ -23,5 +23,3 @@ class AgentChatRequest(BaseModel):
 class WorkflowChatRequest(BaseModel):
     """Workflow 对话请求（基于 LangGraph）"""
     user_input: str = Field(..., description="用户输入内容")
-    history_text: Optional[str] = Field("", description="对话历史文本")
-    long_term_memory: Optional[str] = Field("", description="长期记忆文本")

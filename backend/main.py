@@ -2,7 +2,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.api.agent import router as agent_router
-from app.api.llm import router as llm_router
 from app.initialize.redis import init_redis, close_redis
 from app.initialize.laminar import init_laminar
 from app.initialize.chromadb import init_chromadb, close_chromadb
@@ -25,7 +24,6 @@ logging.getLogger('app.modules.workflow.nodes.user_info').setLevel(logging.WARNI
 logging.getLogger('app.modules.workflow.nodes.Intent_recognition').setLevel(logging.WARNING)
 logging.getLogger('app.modules.workflow.nodes.llm_answer').setLevel(logging.WARNING)
 logging.getLogger('app.core.session_token').setLevel(logging.WARNING)
-logging.getLogger('app.api.llm').setLevel(logging.WARNING)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -68,7 +66,6 @@ app.add_middleware(
 
 # 注册路由
 app.include_router(agent_router)
-app.include_router(llm_router)
 
 @app.get("/")
 def root():

@@ -7,15 +7,7 @@
           <path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </button>
-      <h1 class="chat-title">{{ title }} {{ useWorkflowAPI ? '(Workflow)' : '' }}</h1>
-      <button 
-        class="test-btn" 
-        :class="{ active: useWorkflowAPI }"
-        @click="toggleWorkflowAPI" 
-        :disabled="!sessionToken"
-      >
-        {{ useWorkflowAPI ? 'Workflow' : 'Test' }}
-      </button>
+      <h1 class="chat-title">{{ title }}</h1>
     </div>
 
     <!-- 消息列表 -->
@@ -68,7 +60,7 @@
 
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted } from 'vue';
-import { chatStream, initSession, getChatHistory, type ChatMessage as APIChatMessage } from '../api/agent';
+import { initSession, getSessionHistory } from '../api/agent';
 
 // 消息类型（扩展支持分隔线）
 interface ChatMessage {
@@ -85,9 +77,6 @@ const provider = ref<'deepseek'>('deepseek');  // 固定为 deepseek
 const inputText = ref('');
 const isLoading = ref(false);
 const messagesContainer = ref<HTMLElement | null>(null);
-
-// 是否使用 Workflow API (chat1)
-const useWorkflowAPI = ref(false);
 
 // 消息列表（初始显示欢迎消息）
 const messages = ref<ChatMessage[]>([
@@ -116,27 +105,9 @@ const goBack = () => {
   window.history.back();
 };
 
-// 切换 Workflow API 模式
-const toggleWorkflowAPI = () => {
-  useWorkflowAPI.value = !useWorkflowAPI.value;
-  console.log('[Mode] 切换到:', useWorkflowAPI.value ? 'Workflow API (/api/agent/chat1)' : '普通 API (/api/agent/chat)');
-  
-  // 显示提示
-  const mode = useWorkflowAPI.value ? 'Workflow 模式' : '普通模式';
-  const api = useWorkflowAPI.value ? '/api/agent/chat1' : '/api/agent/chat';
-  alert(`✅ 已切换到 ${mode}
-
-接口: ${api}
-
-特性:
-${useWorkflowAPI.value ? 
-    '- 用户信息获取\n- 意图识别\n- 记忆检索 (ChromaDB)\n- LLM 回答\n- 记忆保存' : 
-    '- 流式对话\n- 历史记录'}`);
-};
 
 
-
-// 发送消息
+// 发送消息（统一使用 Workflow 接口）
 const handleSend = async () => {
   if (!canSend.value) return;
 
@@ -151,17 +122,11 @@ const handleSend = async () => {
 
   scrollToBottom();
 
-  // 根据模式选择不同的处理方式
-  if (useWorkflowAPI.value) {
-    // Workflow API 模式 (/api/agent/chat1) - 非流式
-    await handleWorkflowSend(userMessage);
-  } else {
-    // 普通流式 API 模式 (/api/agent/chat)
-    await handleStreamSend(userMessage);
-  }
+  // 统一使用 Workflow API
+  await handleWorkflowSend(userMessage);
 };
 
-// Workflow API 发送（流式）
+// Workflow 流式发送
 const handleWorkflowSend = async (userMessage: string) => {
   // 添加助手消息占位符
   const assistantMessageIndex = messages.value.length;
@@ -174,9 +139,9 @@ const handleWorkflowSend = async (userMessage: string) => {
   scrollToBottom();
 
   try {
-    console.log('[Workflow] 调用 /api/agent/chat1 流式接口...');
+    console.log('[Workflow] 调用 /api/agent/chat 流式接口...');
     
-    const urlWithToken = `http://localhost:8000/api/agent/chat1?session_token=${sessionToken.value}`;
+    const urlWithToken = `http://localhost:8000/api/agent/chat?session_token=${sessionToken.value}`;
     
     const response = await fetch(urlWithToken, {
       method: 'POST',
@@ -184,8 +149,7 @@ const handleWorkflowSend = async (userMessage: string) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        user_input: userMessage,
-        history_text: '',
+        user_input: userMessage
       })
     });
 
@@ -249,89 +213,7 @@ const handleWorkflowSend = async (userMessage: string) => {
   }
 };
 
-// 普通流式 API 发送
-const handleStreamSend = async (userMessage: string) => {
-  // 添加助手消息占位符（使用数组索引来确保响应式）
-  const assistantMessageIndex = messages.value.length;
-  messages.value.push({
-    role: 'assistant',
-    content: ''
-  });
-
-  isLoading.value = true;
-  scrollToBottom();
-
-  try {
-    // 构建聊天历史（排除当前正在构建的助手消息和分隔线）
-    const chatHistory = messages.value
-      .slice(0, -1)
-      .filter(msg => msg.role !== 'system' && msg.role !== 'divider')
-      .map(msg => ({
-        role: msg.role as 'user' | 'assistant',
-        content: msg.content
-      }));
-
-    // 调用流式接口
-    console.log('[Chat] 开始发送消息，历史消息数:', chatHistory.length);
-    await chatStream(
-      sessionToken.value,  // 第一个参数: session_token
-      {
-        messages: chatHistory,
-        provider: provider.value,
-        temperature: 0.7,
-        max_tokens: 2000,
-        stream: true
-      },
-      // onMessage - 接收流式数据
-      (chunk: string) => {
-        console.log('[Chat] 收到chunk:', chunk);
-        // 使用索引访问并更新，触发响应式更新
-        const msg = messages.value[assistantMessageIndex];
-        if (msg) {
-          msg.content += chunk;
-        }
-        scrollToBottom();
-      },
-      // onError - 错误处理
-      (error: Error) => {
-        console.error('[Chat] 错误:', error);
-        const msg = messages.value[assistantMessageIndex];
-        if (msg) {
-          // 检查是否是 session 过期错误
-          if (error.message.includes('会话已过期')) {
-            msg.content = `⚠️ 会话已过期，请刷新页面重新登录`;
-            // 清空 sessionToken，防止继续使用
-            sessionToken.value = '';
-          } else {
-            msg.content = `错误: ${error.message}`;
-          }
-        }
-        isLoading.value = false;
-        scrollToBottom();
-      },
-      // onComplete - 完成回调
-      () => {
-        const msg = messages.value[assistantMessageIndex];
-        console.log('[Chat] 流式传输完成，收到内容:', msg?.content);
-        if (msg && !msg.content.trim()) {
-          msg.content = '(无响应)';
-        }
-        isLoading.value = false;
-        scrollToBottom();
-      }
-    );
-  } catch (error) {
-    console.error('Send message error:', error);
-    const msg = messages.value[assistantMessageIndex];
-    if (msg) {
-      msg.content = `发送失败: ${error}`;
-    }
-    isLoading.value = false;
-    scrollToBottom();
-  }
-};
-
-// 加载对话历史
+// 加载对话历史（统一使用 ChromaDB）
 const loadChatHistory = async () => {
   if (!sessionToken.value) {
     console.error('[History] 无法加载历史：session_token 为空');
@@ -339,53 +221,45 @@ const loadChatHistory = async () => {
   }
 
   try {
-    console.log('[History] 开始加载对话历史...');
-    const response = await getChatHistory(sessionToken.value);
+    console.log('[History] 开始加载对话历史（ChromaDB）...');
     
-    if (response.code === 200) {
-      const historyMessages = response.data.messages;
+    // 使用 sessionToken 作为 session_id
+    const response = await getSessionHistory(sessionToken.value, sessionToken.value);
+    
+    if (response.total_count > 0) {
+      // 构建完整消息列表：历史消息 + 分隔线 + 欢迎消息
+      const historyMessages = response.messages.map(msg => ({
+        role: msg.role,
+        content: msg.content
+      }));
       
-      // 如果有历史记录（不是新用户）
-      if (!response.data.is_new_user && historyMessages.length > 0) {
-        // 构建完整消息列表：历史消息 + 分隔线 + 欢迎消息
-        messages.value = [
-          ...historyMessages,  // 历史对话
-          {
-            role: 'divider',
-            content: '以上是历史对话'
-          },
-          {
-            role: 'assistant',
-            content: '你好，我是安然，你的心理陪伴者。我在这里倾听你的心声，如果你在工作中遇到困扰或不公，随时可以跟我说。'
-          }
-        ];
-        console.log('[History] ✅ 历史加载成功，消息数:', historyMessages.length);
-      } else {
-        // 新用户，只显示欢迎消息
-        messages.value = [
-          {
-            role: 'assistant',
-            content: '你好，我是安然，你的心理陪伴者。我在这里倾听你的心声，如果你在工作中遇到困扰或不公，随时可以跟我说。'
-          }
-        ];
-        console.log('[History] ✅ 新用户，显示欢迎消息');
-      }
-      
-      console.log('[History] is_new_user:', response.data.is_new_user);
-      scrollToBottom();
+      messages.value = [
+        ...historyMessages,  // 历史对话
+        {
+          role: 'divider',
+          content: '以上是历史对话'
+        },
+        {
+          role: 'assistant',
+          content: '你好，我是安然，你的心理陪伴者。我在这里倾听你的心声，如果你在工作中遇到困扰或不公，随时可以跟我说。'
+        }
+      ];
+      console.log('[History] ✅ ChromaDB历史加载成功，消息数:', response.total_count);
     } else {
-      console.error('[History] 加载失败:', response.msg);
-      // 失败时显示默认欢迎消息
+      // 无历史记录，只显示欢迎消息
       messages.value = [
         {
           role: 'assistant',
           content: '你好，我是安然，你的心理陪伴者。我在这里倾听你的心声，如果你在工作中遇到困扰或不公，随时可以跟我说。'
         }
       ];
+      console.log('[History] ✅ 无历史记录，显示欢迎消息');
     }
-  } catch (error) {
-    console.error('[History] 加载错误:', error);
-    // 错误时显示默认欢迎消息
+    
+    scrollToBottom();
+  } catch (error: any) {
+    console.error('[History] ChromaDB历史加载失败:', error);
+    // 失败时显示默认欢迎消息
     messages.value = [
       {
         role: 'assistant',

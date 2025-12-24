@@ -40,6 +40,21 @@ export interface HistoryResponse {
   };
 }
 
+// ChromaDB 历史记录响应
+export interface ChromaDBHistoryResponse {
+  user_id: string;
+  session_id: string;
+  total_count: number;
+  messages: Array<{
+    id: string;
+    role: 'user' | 'assistant';
+    content: string;
+    timestamp: string;
+    user_id: string;
+    session_id: string;
+  }>;
+}
+
 // LangGraph 工作流请求参数
 export interface WorkflowChatRequest {
   message: string;
@@ -189,7 +204,7 @@ export async function chatStream(
 }
 
 /**
- * 获取对话历史
+ * 获取对话历史（Redis）
  * @param sessionToken 会话 Token
  * @returns Promise<HistoryResponse>
  */
@@ -211,6 +226,51 @@ export async function getChatHistory(sessionToken: string): Promise<HistoryRespo
     return data;
   } catch (error) {
     console.error('Get chat history error:', error);
+    throw error;
+  }
+}
+
+/**
+ * 获取指定会话的所有历史对话（ChromaDB）
+ * @param sessionToken 会话 Token
+ * @param sessionId 会话ID
+ * @param limit 限制数量（可选）
+ * @returns Promise<ChromaDBHistoryResponse>
+ */
+export async function getSessionHistory(
+  sessionToken: string,
+  sessionId: string,
+  limit?: number
+): Promise<ChromaDBHistoryResponse> {
+  try {
+    const url = new URL(`http://127.0.0.1:8000/api/agent/history/${sessionId}`);
+    url.searchParams.append('session_token', sessionToken);
+    if (limit) {
+      url.searchParams.append('limit', limit.toString());
+    }
+
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        console.warn('[SessionHistory] Session 已过期，清除本地缓存');
+        localStorage.removeItem('session_token');
+        localStorage.removeItem('access_token');
+        throw new Error('会话已过期，请刷新页面重新登录');
+      }
+      throw new Error(`获取会话历史失败: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log('[SessionHistory] ChromaDB 历史记录:', data);
+    return data;
+  } catch (error) {
+    console.error('Get session history error:', error);
     throw error;
   }
 }

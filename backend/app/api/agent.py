@@ -1,11 +1,13 @@
 # 智能体接口 - Agent API
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
-from app.schemas.agent_schema import AgentChatRequest
-from app.services.agent_service import agent_service
-from app.services.redis_service import redis_service
+from app.schemas.agent_schema import WorkflowChatRequest
+from app.modules.workflow.workflows.workflow import run_chat_workflow_streaming
+from app.modules.chromadb.core.chromadb_core import chromadb_core
 from app.core.security import get_current_user, get_current_session
 from app.core.session_token import create_or_get_session
+from pydantic import BaseModel
+from typing import List, Optional
 import logging
 
 logger = logging.getLogger(__name__)
@@ -53,102 +55,82 @@ async def init_session(user: dict = Depends(get_current_user)):
         )
 
 
-@router.post("/chat", summary="流式对话接口")
-async def chat(request: AgentChatRequest, user: dict = Depends(get_current_session)):
-    """
-    Agent 流式对话接口 - SSE 流式输出
-    
-    参数:
-    - messages: 对话消息列表，每条消息包含 role 和 content
-      - role: system/user/assistant
-      - content: 消息内容
-    - provider: LLM 提供商，'deepseek' 或 'ollama'，默认 'ollama'
-    - temperature: 温度参数，控制生成的随机性 (0.0-2.0)，默认 0.7
-    - max_tokens: 最大生成 token 数，默认 2000
-    - model: 指定模型名称（可选）
-    
-    返回:
-    - SSE 流式输出，每个 chunk 以 "data: <text>\n\n" 发送，最后发送 "data: [DONE]\n\n"
-    """
+@router.post("/chat", summary="Workflow 对话接口（基于 LangGraph - 流式）")
+async def chat_with_workflow(request: WorkflowChatRequest, user: dict = Depends(get_current_session)):
+    """流式对话 - 使用 LangGraph 的 astream_events 监听 LLM 流式输出"""
     try:
-        # 将 Pydantic 模型转换为字典
-        messages = [msg.model_dump() for msg in request.messages]
-        logger.info(f"=== 接收到流式请求 ===")
-        logger.info(f"用户: {user.get('username', 'Unknown')} (ID: {user.get('user_id', 'Unknown')})")
-        logger.info(f"消息数量: {len(messages)}, provider={request.provider}")
-        
-        # 获取用户信息（用于 Laminar 追踪和 Redis 保存）
         user_id = user.get("user_id")
-        session_token = user.get("session_token")
-        username = user.get("username", "Unknown")
-        logger.info(f"session_token: {session_token[:20] if session_token else 'None'}...")
-
-        # SSE 流式输出生成器
+        session_id = user.get("session_token")
+        
+        if not user_id or not session_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="无法获取用户ID")
+        
         async def sse_generator():
             try:
-                logger.info(">>> 开始 SSE 流式输出")
-                chunk_count = 0
-                async for chunk in agent_service.chat_stream(
-                    messages=messages,
-                    temperature=request.temperature,
-                    max_tokens=request.max_tokens,
-                    model=request.model,
-                    provider=request.provider,
-                    session_token=session_token,
-                    save_history=True,
-                    user_id=user_id,  # 传入 user_id
-                    username=username  # 传入 username 用于 Laminar 追踪
+                async for content in run_chat_workflow_streaming(
+                    user_input=request.user_input,
+                    session_id=session_id,
+                    user_id=user_id,
+                    username=user.get("username")
                 ):
-                    if chunk:
-                        chunk_count += 1
-                        logger.info(f"[第{chunk_count}个chunk] 发送: {repr(chunk)[:80]}")
-                        yield f"data: {chunk}\n\n"
+                    yield f"data: {content}\n\n"
                 
                 yield "data: [DONE]\n\n"
-                logger.info(f"<<< SSE 流式输出完成，共发送 {chunk_count} 个chunk")
+                
             except Exception as e:
-                logger.error(f"!!! SSE 流式输出错误: {str(e)}", exc_info=True)
+                logger.error(f"Workflow 流式错误: {str(e)}", exc_info=True)
                 yield f"data: [ERROR] {str(e)}\n\n"
                 yield "data: [DONE]\n\n"
-
-        headers = {
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        }
+        
+        headers = {"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"}
         return StreamingResponse(sse_generator(), media_type="text/event-stream", headers=headers)
-
+        
     except Exception as e:
-        logger.error(f"!!! 对话接口调用失败: {str(e)}", exc_info=True)
-        # 即使发生异常，也返回流式响应
+        logger.error(f"Workflow 失败: {str(e)}", exc_info=True)
         async def error_generator():
             yield f"data: [ERROR] {str(e)}\n\n"
             yield "data: [DONE]\n\n"
         return StreamingResponse(error_generator(), media_type="text/event-stream")
 
 
-@router.get("/history", summary="获取对话历史")
-async def get_chat_history(session_data: dict = Depends(get_current_session)):
+class HistoryResponse(BaseModel):
+    """历史对话响应模型"""
+    user_id: str
+    session_id: str
+    total_count: int
+    messages: List[dict]
+
+
+@router.get("/history/{session_id}", response_model=HistoryResponse, summary="获取指定会话的所有历史对话")
+async def get_session_history(
+    session_id: str,
+    limit: Optional[int] = None,
+    user: dict = Depends(get_current_session)
+):
     """
-    获取当前用户的对话历史记录
+    获取指定会话的所有历史对话记录
     
-    前端页面加载时调用此接口，自动展示历史对话
-    如果是新用户或无历史记录，返回欢迎消息
+    Args:
+        session_id: 会话ID
+        limit: 限制返回数量（可选，不传则返回全部）
+        user: 当前登录用户信息（自动注入）
     
-    参数:
-    - session_token: 会话 Token (通过 Query 或 Header 传递)
+    Returns:
+        HistoryResponse: 包含所有历史消息的响应
+            - user_id: 用户ID
+            - session_id: 会话ID
+            - total_count: 消息总数
+            - messages: 消息列表，每条消息包含：
+                - id: 消息ID
+                - role: 角色（user/assistant）
+                - content: 消息内容
+                - timestamp: 时间戳
     
-    返回:
-    - code: 状态码
-    - msg: 消息
-    - data:
-      - user_id: 用户ID
-      - metadata: 元数据（conversation_id, conversation_count等）
-      - messages: 消息列表
-      - is_new_user: 是否为新用户
+    Example:
+        GET /api/agent/history/abc123?limit=10
     """
     try:
-        user_id = session_data.get("user_id")
+        user_id = user.get("user_id")
         
         if not user_id:
             raise HTTPException(
@@ -156,41 +138,25 @@ async def get_chat_history(session_data: dict = Depends(get_current_session)):
                 detail="无法获取用户ID"
             )
         
-        logger.info(f"获取对话历史: user_id={user_id}")
+        # 从 ChromaDB 获取历史消息
+        messages = chromadb_core.get_all_messages(
+            user_id=str(user_id),
+            session_id=session_id,
+            limit=limit
+        )
         
-        # 获取对话历史消息
-        messages = await redis_service.get_chat_history(user_id)
+        logger.info(f"✅ 获取历史对话成功: user_id={user_id}, session_id={session_id[:20]}..., count={len(messages)}")
         
-        # 获取元数据
-        metadata = await redis_service.get_conversation_metadata(user_id)
+        return HistoryResponse(
+            user_id=str(user_id),
+            session_id=session_id,
+            total_count=len(messages),
+            messages=messages
+        )
         
-        # 判断是否为新用户（无历史记录）
-        is_new_user = len(messages) == 0
-        
-        # 如果是新用户，添加欢迎消息
-        if is_new_user:
-            messages = [
-                {
-                    "role": "assistant",
-                    "content": "你好，我是AI助手，有什么我可以帮助你的吗？"
-                }
-            ]
-        
-        return {
-            "code": 200,
-            "msg": "获取对话历史成功",
-            "data": {
-                "user_id": user_id,
-                "metadata": metadata or {},
-                "messages": messages,
-                "is_new_user": is_new_user
-            }
-        }
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"获取对话历史失败: {str(e)}", exc_info=True)
+        logger.error(f"❌ 获取历史对话失败: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"获取对话历史失败: {str(e)}"
+            detail=f"获取历史对话失败: {str(e)}"
         )

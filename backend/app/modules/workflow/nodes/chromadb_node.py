@@ -14,8 +14,9 @@ def get_memory_node(state: WorkflowState) -> Dict[str, Any]:
     职责：
     1. 从 state 中提取 user_id、session_id 和 user_input
     2. 基于当前用户输入检索相关的历史对话记忆（语义搜索）
-    3. 将检索到的记忆格式化为文本
-    4. 更新 state 中的 history_text
+    3. 过滤相似度 > 0.7 的记忆（distance < 0.3，因为distance越小越相似）
+    4. 将检索到的记忆格式化为文本
+    5. 更新 state 中的 history_text
     
     Args:
         state: 工作流状态，需要包含：
@@ -30,59 +31,66 @@ def get_memory_node(state: WorkflowState) -> Dict[str, Any]:
     """
     
     try:
-        # 1. 提取必要参数
         user_id = state.get("user_id")
         session_id = state.get("session_id")
         user_input = state.get("user_input", "")
         
         if not user_id or not session_id:
-            logger.warning("⚠️ 缺少 user_id 或 session_id，跳过记忆检索")
             return {
                 "history_text": "",
                 "memory_count": 0
             }
         
-        # 2. 从 ChromaDB 检索相关记忆（基于语义相似度）
         memories = chromadb_core.search_memory(
             user_id=user_id,
             session_id=session_id,
             query_text=user_input,
-            n_results=10,  # 最多返回 10 条相关记忆
+            n_results=50,
             include_metadata=True
         )
         
         if not memories:
-            logger.info("📭 未找到相关记忆")
             return {
                 "history_text": "",
                 "memory_count": 0
             }
         
-        # 3. 格式化记忆为文本
-        history_lines = []
+        # 过滤相似度阈值：distance < 0.3
+        SIMILARITY_THRESHOLD = 0.3
+        filtered_memories = [
+            mem for mem in memories 
+            if mem.get("distance", 1.0) < SIMILARITY_THRESHOLD
+        ]
         
-        for memory in memories:
+        if not filtered_memories:
+            return {
+                "history_text": "",
+                "memory_count": 0
+            }
+        
+        # 格式化记忆为文本
+        history_lines = []
+        for memory in filtered_memories:
             role = memory.get("role", "unknown")
             content = memory.get("content", "")
-            history_lines.append(f"{role}: {content}")
+            role_name = "用户" if role == "user" else "安然" if role == "assistant" else role
+            history_lines.append(f"{role_name}：{content}")
         
         history_text = "\n".join(history_lines)
         
-        logger.info(f"✅ 记忆检索完成，共 {len(memories)} 条")
+        logger.info(f"✅ 记忆检索完成，共 {len(filtered_memories)} 条")
         
-        # 4. 返回更新的状态
         return {
             "history_text": history_text,
-            "memory_count": len(memories)
+            "memory_count": len(filtered_memories)
         }
         
     except Exception as e:
-        error_msg = f"获取记忆节点执行失败: {str(e)}"
-        logger.error(error_msg, exc_info=True)
+        logger.error(f"获取记忆节点执行失败: {str(e)}", exc_info=True)
         return {
             "history_text": "",
             "memory_count": 0,
-            "error": error_msg
+            "error": str(e)
         }
 
 
@@ -109,21 +117,18 @@ def save_memory_node(state: WorkflowState) -> Dict[str, Any]:
     """
     
     try:
-        # 1. 提取必要参数
         user_id = state.get("user_id")
         session_id = state.get("session_id")
         user_input = state.get("user_input", "")
         llm_response = state.get("llm_response", "")
         
         if not user_id or not session_id:
-            logger.warning("⚠️ 缺少 user_id 或 session_id，跳过记忆保存")
             return {
                 "memory_saved": False,
                 "saved_message_ids": []
             }
         
         if not user_input and not llm_response:
-            logger.warning("⚠️ 用户输入和 LLM 回答均为空，跳过记忆保存")
             return {
                 "memory_saved": False,
                 "saved_message_ids": []
@@ -131,7 +136,6 @@ def save_memory_node(state: WorkflowState) -> Dict[str, Any]:
         
         saved_ids = []
         
-        # 2. 保存用户消息
         if user_input:
             user_msg_id = chromadb_core.add_message(
                 user_id=user_id,
@@ -141,7 +145,6 @@ def save_memory_node(state: WorkflowState) -> Dict[str, Any]:
             )
             saved_ids.append(user_msg_id)
         
-        # 3. 保存助手回复
         if llm_response:
             assistant_msg_id = chromadb_core.add_message(
                 user_id=user_id,
@@ -153,19 +156,17 @@ def save_memory_node(state: WorkflowState) -> Dict[str, Any]:
         
         logger.info(f"✅ 记忆保存完成，共保存 {len(saved_ids)} 条消息")
         
-        # 4. 返回更新的状态
         return {
             "memory_saved": True,
             "saved_message_ids": saved_ids
         }
         
     except Exception as e:
-        error_msg = f"保存记忆节点执行失败: {str(e)}"
-        logger.error(error_msg, exc_info=True)
+        logger.error(f"保存记忆节点执行失败: {str(e)}", exc_info=True)
         return {
             "memory_saved": False,
             "saved_message_ids": [],
-            "error": error_msg
+            "error": str(e)
         }
 
 
@@ -189,27 +190,18 @@ def get_all_messages_node(state: WorkflowState) -> Dict[str, Any]:
             - message_count: 消息总数
             - messages: 原始消息列表
     """
-    logger.info("========== 获取所有消息节点开始 ==========")
-    
     try:
-        # 1. 提取必要参数
         user_id = state.get("user_id")
         session_id = state.get("session_id")
-        limit = state.get("message_limit", None)  # 可选的数量限制
+        limit = state.get("message_limit", None)
         
         if not user_id or not session_id:
-            logger.warning("⚠️ 缺少 user_id 或 session_id，跳过消息获取")
             return {
                 "history_text": "",
                 "message_count": 0,
                 "messages": []
             }
         
-        logger.info(f"用户ID: {user_id}")
-        logger.info(f"会话ID: {session_id[:20]}...")
-        
-        # 2. 从 ChromaDB 获取所有消息
-        logger.info("正在获取所有历史消息...")
         messages = chromadb_core.get_all_messages(
             user_id=user_id,
             session_id=session_id,
@@ -217,30 +209,24 @@ def get_all_messages_node(state: WorkflowState) -> Dict[str, Any]:
         )
         
         if not messages:
-            logger.info("📭 未找到历史消息")
             return {
                 "history_text": "",
                 "message_count": 0,
                 "messages": []
             }
         
-        # 3. 格式化消息为文本
-        logger.info(f"📚 获取到 {len(messages)} 条历史消息")
+        # 格式化消息为文本
         history_lines = []
-        
-        for i, msg in enumerate(messages, 1):
+        for msg in messages:
             role = msg.get("role", "unknown")
             content = msg.get("content", "")
-            timestamp = msg.get("timestamp", "")
-            
-            history_lines.append(f"{role}: {content}")
-            logger.info(f"  [{i}] {timestamp[:19]} - {role[:4]}: {content[:30]}...")
+            role_name = "用户" if role == "user" else "安然" if role == "assistant" else role
+            history_lines.append(f"{role_name}：{content}")
         
         history_text = "\n".join(history_lines)
         
         logger.info(f"✅ 消息获取完成，共 {len(messages)} 条")
         
-        # 4. 返回更新的状态
         return {
             "history_text": history_text,
             "message_count": len(messages),
@@ -248,11 +234,10 @@ def get_all_messages_node(state: WorkflowState) -> Dict[str, Any]:
         }
         
     except Exception as e:
-        error_msg = f"获取所有消息节点执行失败: {str(e)}"
-        logger.error(error_msg, exc_info=True)
+        logger.error(f"获取所有消息节点执行失败: {str(e)}", exc_info=True)
         return {
             "history_text": "",
             "message_count": 0,
             "messages": [],
-            "error": error_msg
+            "error": str(e)
         }
