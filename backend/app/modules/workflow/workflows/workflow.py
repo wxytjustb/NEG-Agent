@@ -2,15 +2,17 @@ from langgraph.graph import END  # type: ignore
 from app.modules.workflow.core.graph import WorkflowGraphBuilder
 from app.modules.workflow.core.state import WorkflowState
 from app.modules.workflow.nodes.Intent_recognition import detect_intent
-from app.modules.workflow.nodes.llm_answer import llm_answer_node
+from app.modules.workflow.nodes.llm_answer import async_llm_stream_answer_node
 from app.modules.workflow.nodes.user_info import async_user_info_node  # 异步版本（支持 session 缓存）
 from app.modules.workflow.nodes.chromadb_node import get_memory_node, save_memory_node  # ChromaDB 记忆节点
 from typing import Dict, Any, Optional
+from lmnr import observe, Laminar
 import logging
 
 logger = logging.getLogger(__name__)
 
 
+@observe(name="intent_recognition_node", tags=["node", "intent"])
 def intent_recognition_node(state: WorkflowState) -> Dict[str, Any]:
     """意图识别节点 - LangGraph 节点包装器"""
     logger.info("========== 意图识别节点开始 ===========")
@@ -53,7 +55,7 @@ def create_chat_workflow():
     builder.add_node("user_info", async_user_info_node)           # 第1步：获取用户画像
     builder.add_node("intent_recognition", intent_recognition_node) # 第2步：意图识别
     builder.add_node("get_memory", get_memory_node)         # 第3步：获取历史记忆
-    builder.add_node("llm_answer", llm_answer_node)                # 第4步：LLM回答
+    builder.add_node("llm_answer", async_llm_stream_answer_node)   # 第4步：LLM回答（异步流式）
     builder.add_node("save_memory", save_memory_node)       # 第5步：保存记忆
     
     # 3. 设置入口节点
@@ -97,36 +99,7 @@ def get_chat_workflow():
     return _chat_workflow
 
 
-def run_chat_workflow(
-    user_input: str,
-    session_id: str,
-    user_id: Optional[str] = None,
-    username: Optional[str] = None
-) -> Dict[str, Any]:
-    """运行对话工作流（非流式，仅用于测试）"""
-    initial_state: WorkflowState = {
-        "user_input": user_input,
-        "session_id": session_id,
-        "is_streaming": True
-    }
-    
-    if user_id:
-        initial_state["user_id"] = user_id
-    
-    # 通过 config 传递 metadata，Laminar 会自动追踪
-    config = {
-        "metadata": {
-            "workflow": "chat_workflow",
-            "message": user_input[:50] + "..." if len(user_input) > 50 else user_input,
-            "session_id": session_id,
-            "user_id": str(user_id) if user_id else None,
-            "username": username or "Unknown"
-        }
-    }
-    
-    return get_chat_workflow().invoke(initial_state, config=config)
-
-
+@observe(name="chat_workflow_stream", tags=["workflow", "chat", "streaming"])
 async def run_chat_workflow_streaming(
     user_input: str,
     session_id: str,
@@ -137,13 +110,25 @@ async def run_chat_workflow_streaming(
     initial_state: WorkflowState = {
         "user_input": user_input,
         "session_id": session_id,
-        "is_streaming": False
+        "is_streaming": True
     }
     
     if user_id:
         initial_state["user_id"] = user_id
     
-    # 通过 config 传递 metadata，Laminar 会自动追踪
+    # 设置 Laminar 追踪元数据
+    if user_id:
+        Laminar.set_trace_user_id(str(user_id))
+    if session_id:
+        Laminar.set_trace_session_id(session_id)
+    
+    Laminar.set_trace_metadata({
+        "username": username or "Unknown",
+        "user_id": str(user_id) if user_id else None,
+        "session_id": session_id[:20] + "..." if len(session_id) > 20 else session_id,
+        "message_preview": user_input[:50] + "..." if len(user_input) > 50 else user_input
+    })
+    
     config = {
         "metadata": {
             "workflow": "chat_workflow",
@@ -154,8 +139,49 @@ async def run_chat_workflow_streaming(
         }
     }
     
-    async for event in get_chat_workflow().astream_events(initial_state, config=config, version="v2"):
-        if event["event"] == "on_chat_model_stream":
-            content = event["data"]["chunk"].content
-            if content:
-                yield content
+    has_output = False
+    total_input_tokens = 0
+    total_output_tokens = 0
+    
+    try:
+        async for event in get_chat_workflow().astream_events(initial_state, config=config, version="v2"):
+            event_type = event.get("event")
+            
+            # 监听 LLM Token 使用情况
+            if event_type == "on_chat_model_end":
+                output = event.get("data", {}).get("output")
+                if output and hasattr(output, 'usage_metadata') and output.usage_metadata:
+                    usage = output.usage_metadata
+                    total_input_tokens += usage.get('input_tokens', 0)
+                    total_output_tokens += usage.get('output_tokens', 0)
+                    
+                    # 更新 Laminar Span 的 Token 统计
+                    Laminar.set_span_attributes({
+                        "llm.usage.input_tokens": total_input_tokens,
+                        "llm.usage.output_tokens": total_output_tokens,
+                        "llm.usage.total_tokens": total_input_tokens + total_output_tokens
+                    })
+            
+            # 流式内容输出
+            if event_type == "on_chat_model_stream":
+                chunk = event.get("data", {}).get("chunk")
+                if chunk and hasattr(chunk, "content"):
+                    content = chunk.content
+                    if content:
+                        has_output = True
+                        yield content
+        
+        # 兜底逻辑
+        if not has_output:
+            final_state = await get_chat_workflow().ainvoke(initial_state, config=config)
+            llm_response = final_state.get("llm_response", "")
+            
+            if llm_response:
+                for i in range(0, len(llm_response), 10):
+                    yield llm_response[i:i+10]
+            else:
+                yield "[错误] 工作流未生成回答"
+    
+    except Exception as e:
+        logger.error(f"流式工作流执行失败: {str(e)}", exc_info=True)
+        yield f"[错误] {str(e)}"

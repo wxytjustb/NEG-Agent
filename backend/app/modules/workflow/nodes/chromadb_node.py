@@ -2,11 +2,13 @@
 from typing import Dict, Any, List
 from app.modules.chromadb.core.chromadb_core import chromadb_core
 from app.modules.workflow.core.state import WorkflowState
+from lmnr import observe
 import logging
 
 logger = logging.getLogger(__name__)
 
 
+@observe(name="get_memory_node", tags=["node", "memory", "retrieval"])
 def get_memory_node(state: WorkflowState) -> Dict[str, Any]:
     """
     获取记忆节点 - 从 ChromaDB 获取用户的对话记忆
@@ -94,6 +96,7 @@ def get_memory_node(state: WorkflowState) -> Dict[str, Any]:
         }
 
 
+@observe(name="save_memory_node", tags=["node", "memory", "storage"])
 def save_memory_node(state: WorkflowState) -> Dict[str, Any]:
     """
     保存记忆节点 - 将本轮对话保存到 ChromaDB

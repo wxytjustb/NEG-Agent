@@ -4,6 +4,7 @@ import logging
 from typing import Dict, Any
 from app.modules.workflow.core.state import WorkflowState
 from app.core.config import settings
+from lmnr import observe
 
 logger = logging.getLogger(__name__)
 
@@ -201,6 +202,7 @@ def user_info_node(state: WorkflowState) -> Dict[str, Any]:
         }
 
 
+@observe(name="user_info_node", tags=["node", "user_info"])
 async def async_user_info_node(state: WorkflowState) -> Dict[str, Any]:
     """用户信息节点 - 异步版本（推荐在 LangGraph 中使用）
     
