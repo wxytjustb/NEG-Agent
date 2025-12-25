@@ -2,7 +2,7 @@ from langgraph.graph import END  # type: ignore
 from app.modules.workflow.core.graph import WorkflowGraphBuilder
 from app.modules.workflow.core.state import WorkflowState
 from app.modules.workflow.nodes.Intent_recognition import detect_intent
-from app.modules.workflow.nodes.llm_answer import llm_answer_node
+from app.modules.workflow.nodes.llm_answer import llm_answer_node, async_llm_stream_answer_node
 from app.modules.workflow.nodes.user_info import async_user_info_node  # 异步版本（支持 session 缓存）
 from app.modules.workflow.nodes.chromadb_node import get_memory_node, save_memory_node  # ChromaDB 记忆节点
 from typing import Dict, Any, Optional
@@ -53,7 +53,7 @@ def create_chat_workflow():
     builder.add_node("user_info", async_user_info_node)           # 第1步：获取用户画像
     builder.add_node("intent_recognition", intent_recognition_node) # 第2步：意图识别
     builder.add_node("get_memory", get_memory_node)         # 第3步：获取历史记忆
-    builder.add_node("llm_answer", llm_answer_node)                # 第4步：LLM回答
+    builder.add_node("llm_answer", async_llm_stream_answer_node)   # 第4步：LLM回答（异步流式）
     builder.add_node("save_memory", save_memory_node)       # 第5步：保存记忆
     
     # 3. 设置入口节点
@@ -137,13 +137,12 @@ async def run_chat_workflow_streaming(
     initial_state: WorkflowState = {
         "user_input": user_input,
         "session_id": session_id,
-        "is_streaming": False
+        "is_streaming": True
     }
     
     if user_id:
         initial_state["user_id"] = user_id
     
-    # 通过 config 传递 metadata，Laminar 会自动追踪
     config = {
         "metadata": {
             "workflow": "chat_workflow",
@@ -154,8 +153,31 @@ async def run_chat_workflow_streaming(
         }
     }
     
-    async for event in get_chat_workflow().astream_events(initial_state, config=config, version="v2"):
-        if event["event"] == "on_chat_model_stream":
-            content = event["data"]["chunk"].content
-            if content:
-                yield content
+    has_output = False
+    
+    try:
+        async for event in get_chat_workflow().astream_events(initial_state, config=config, version="v2"):
+            event_type = event.get("event")
+            
+            if event_type == "on_chat_model_stream":
+                chunk = event.get("data", {}).get("chunk")
+                if chunk and hasattr(chunk, "content"):
+                    content = chunk.content
+                    if content:
+                        has_output = True
+                        yield content
+        
+        # 兜底逻辑
+        if not has_output:
+            final_state = await get_chat_workflow().ainvoke(initial_state, config=config)
+            llm_response = final_state.get("llm_response", "")
+            
+            if llm_response:
+                for i in range(0, len(llm_response), 10):
+                    yield llm_response[i:i+10]
+            else:
+                yield "[错误] 工作流未生成回答"
+    
+    except Exception as e:
+        logger.error(f"流式工作流执行失败: {str(e)}", exc_info=True)
+        yield f"[错误] {str(e)}"

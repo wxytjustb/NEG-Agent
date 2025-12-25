@@ -73,23 +73,10 @@ def llm_answer_node(state: WorkflowState) -> Dict[str, Any]:
         }
 
 
-def llm_stream_answer_node(state: WorkflowState):
-    """LLM 流式回答节点 - 构建完整 Prompt 并流式调用 LLM
-    
-    职责：
-    与 llm_answer_node 相同，但使用流式输出
-    适用于需要实时显示回答的场景
-    
-    Args:
-        state: 工作流状态
-        
-    Yields:
-        LLM 流式输出的 token
-    """
-    logger.info("========== LLM 流式回答节点开始 ==========")
-    
+
+async def async_llm_stream_answer_node(state: WorkflowState):
+    """LLM 异步流式回答节点 - 供 astream_events 使用"""
     try:
-        # 1. 从 state 中提取信息
         user_input = state.get("user_input", "")
         intent = state.get("intent", "日常对话")
         company = state.get("company", "未知")
@@ -97,7 +84,7 @@ def llm_stream_answer_node(state: WorkflowState):
         gender = state.get("gender", "未知")
         history_text = state.get("history_text", "")
         
-        # 2. 构建完整的 Prompt
+        # 构建 Prompt
         full_prompt = build_full_prompt(
             user_input=user_input,
             history_text=history_text,
@@ -107,27 +94,26 @@ def llm_stream_answer_node(state: WorkflowState):
             current_intent=intent
         )
         
-        # 3. 流式调用 LLM
-        logger.info("正在流式调用 LLM...")
+        # 异步流式调用 LLM
         llm = llm_core.create_llm(
             temperature=0.7,
             max_tokens=2000
         )
         
         full_response = ""
-        for chunk in llm.stream(full_prompt):
+        async for chunk in llm.astream(full_prompt):
             if hasattr(chunk, 'content') and chunk.content:
-                token = str(chunk.content)
-                full_response += token
-                yield token
+                full_response += str(chunk.content)
         
-        logger.info(f"✅ LLM 流式回答完成，总长度: {len(full_response)} 字符")
-        
-        # 更新状态（流式结束后）
-        state["full_prompt"] = full_prompt
-        state["llm_response"] = full_response
+        return {
+            "full_prompt": full_prompt,
+            "llm_response": full_response
+        }
         
     except Exception as e:
-        error_msg = f"LLM 流式回答节点执行失败: {str(e)}"
-        logger.error(error_msg)
-        yield "抱歉，我现在遇到了一些技术问题，请稍后再试。"
+        logger.error(f"LLM 节点执行失败: {str(e)}", exc_info=True)
+        return {
+            "error": str(e),
+            "full_prompt": "",
+            "llm_response": "抱歉，我现在遇到了一些技术问题，请稍后再试。"
+        }
