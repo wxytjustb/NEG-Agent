@@ -35,17 +35,11 @@ async def async_llm_stream_answer_node(state: WorkflowState, config: Optional[Ru
             max_tokens=2000
         )
         
-        # 🔥 关键：使用 ainvoke，LangGraph 的 astream_events 会自动捕获流式输出
-        # 当 streaming=True 时，ainvoke 会在内部流式处理，astream_events 能监听到
-        logger.info("🔥 开始调用 LLM 生成...")
-        print(f"🔥🔥🔥 LLM streaming={llm.streaming}", flush=True)
-        
-        # 传递 config 以确保回调（callbacks）正确传播，这对于 astream_events 捕获 on_chat_model_stream 至关重要
+        # 🔥 关键：使用 ainvoke + config，让 astream_events 能捕获流式事件
+        # 当 streaming=True 时，ainvoke 内部会流式处理，astream_events 能监听到
         response = await llm.ainvoke(full_prompt, config=config)
         full_response = response.content if hasattr(response, 'content') else str(response)
         
-        print(f"✅✅✅ LLM 生成完成: {full_response[:50]}...", flush=True)
-        logger.info(f"✅ LLM 生成完成: {full_response[:50]}...")
         
         return {
             "full_prompt": full_prompt,

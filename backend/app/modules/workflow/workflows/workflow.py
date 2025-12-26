@@ -16,23 +16,23 @@ logger = logging.getLogger(__name__)
 def intent_recognition_node(state: WorkflowState) -> Dict[str, Any]:
     """意图识别节点 - LangGraph 节点包装器"""
     logger.info("========== 意图识别节点开始 ===========")
-    
+
     try:
         user_input = state.get("user_input", "")
         logger.info(f"用户输入: {user_input[:50]}...")
-        
+
         # 调用意图识别
         intent, confidence, all_scores = detect_intent(user_input)
-        
+
         logger.info(f"✅ 意图识别完成: {intent} (置信度: {confidence:.2f})")
-        
+
         # 返回更新的状态
         return {
             "intent": intent,
             "intent_confidence": confidence,
             "intent_scores": all_scores
         }
-        
+
     except Exception as e:
         error_msg = f"意图识别节点执行失败: {str(e)}"
         logger.error(error_msg)
@@ -47,71 +47,64 @@ def intent_recognition_node(state: WorkflowState) -> Dict[str, Any]:
 def create_chat_workflow():
     """创建对话工作流"""
     logger.info("正在创建对话工作流...")
-    
+
     # 1. 创建图构建器
     builder = WorkflowGraphBuilder(state_schema=WorkflowState)
-    
+
     # 2. 添加节点（按执行顺序）
-    builder.add_node("user_info", async_user_info_node)           # 第1步：获取用户画像
-    builder.add_node("intent_recognition", intent_recognition_node) # 第2步：意图识别
-    builder.add_node("get_memory", get_memory_node)         # 第3步：获取历史记忆
-    builder.add_node("llm_answer", async_llm_stream_answer_node)   # 第4步：LLM回答（异步流式）
-    builder.add_node("save_memory", save_memory_node)       # 第5步：保存记忆
-    
+    builder.add_node("user_info", async_user_info_node)  # 第1步：获取用户画像
+    builder.add_node("intent_recognition", intent_recognition_node)  # 第2步：意图识别
+    builder.add_node("get_memory", get_memory_node)  # 第3步：获取历史记忆
+    builder.add_node("llm_answer", async_llm_stream_answer_node)  # 第4步：LLM回答（异步流式）
+    builder.add_node("save_memory", save_memory_node)  # 第5步：保存记忆
+
     # 3. 设置入口节点
     builder.set_entry_point("user_info")  # 从用户信息获取开始
-    
+
     # 4. 添加边（连接节点）
-    builder.add_edge("user_info", "intent_recognition")      # 用户信息 → 意图识别
-    builder.add_edge("intent_recognition", "get_memory")     # 意图识别 → 获取记忆
-    builder.add_edge("get_memory", "llm_answer")             # 获取记忆 → LLM回答
-    builder.add_edge("llm_answer", "save_memory")            # LLM回答 → 保存记忆
-    builder.add_edge("save_memory", END)                     # 保存记忆 → 结束
-    
+    builder.add_edge("user_info", "intent_recognition")  # 用户信息 → 意图识别
+    builder.add_edge("intent_recognition", "get_memory")  # 意图识别 → 获取记忆
+    builder.add_edge("get_memory", "llm_answer")  # 获取记忆 → LLM回答
+    builder.add_edge("llm_answer", "save_memory")  # LLM回答 → 保存记忆
+    builder.add_edge("save_memory", END)  # 保存记忆 → 结束
+
     # 5. 验证图结构
     builder.validate()
-    
+
     # 6. 编译图
     workflow = builder.compile()
-    
+
     logger.info("✅ 对话工作流创建完成")
     logger.info("工作流结构: 用户信息 → 意图识别 → 获取记忆 → LLM回答 → 保存记忆 → 结束")
-    
+
     return workflow
 
 
 # 全局工作流实例（懒加载）
 _chat_workflow = None
-_workflow_version = 1  # 🔥 工作流版本号，用于强制刷新
 
 
-def get_chat_workflow(force_refresh: bool = False):
+def get_chat_workflow():
     """获取对话工作流实例（单例模式）
-    
-    Args:
-        force_refresh: 是否强制重新创建工作流（开发时使用）
-    
+
     Returns:
         编译后的对话工作流
     """
     global _chat_workflow
-    
-    if _chat_workflow is None or force_refresh:
-        if force_refresh:
-            logger.info("🔄 强制刷新工作流实例...")
-        else:
-            logger.info("首次调用，创建工作流实例...")
+
+    if _chat_workflow is None:
+        logger.info("首次调用，创建工作流实例...")
         _chat_workflow = create_chat_workflow()
-    
+
     return _chat_workflow
 
 
 @observe(name="chat_workflow_stream", tags=["workflow", "chat", "streaming"])
 async def run_chat_workflow_streaming(
-    user_input: str,
-    session_id: str,
-    user_id: Optional[str] = None,
-    username: Optional[str] = None
+        user_input: str,
+        session_id: str,
+        user_id: Optional[str] = None,
+        username: Optional[str] = None
 ):
     """运行对话工作流（流式版本）"""
     initial_state: WorkflowState = {
@@ -119,23 +112,23 @@ async def run_chat_workflow_streaming(
         "session_id": session_id,
         "is_streaming": True
     }
-    
+
     if user_id:
         initial_state["user_id"] = user_id
-    
+
     # 设置 Laminar 追踪元数据
     if user_id:
         Laminar.set_trace_user_id(str(user_id))
     if session_id:
         Laminar.set_trace_session_id(session_id)
-    
+
     Laminar.set_trace_metadata({
         "username": username or "Unknown",
         "user_id": str(user_id) if user_id else None,
         "session_id": session_id[:20] + "..." if len(session_id) > 20 else session_id,
         "message_preview": user_input[:50] + "..." if len(user_input) > 50 else user_input
     })
-    
+
     config = {
         "metadata": {
             "workflow": "chat_workflow",
@@ -145,31 +138,21 @@ async def run_chat_workflow_streaming(
             "username": username or "Unknown"
         }
     }
-    
+
     has_output = False
     total_input_tokens = 0
     total_output_tokens = 0
     event_count = 0  # 调试：统计事件数量
-    event_types_seen = set()  # 🔍 收集所有事件类型用于调试
-    
-    print("🚀🚀🚀 开始监听 astream_events...", flush=True)  # 强制输出
-    logger.info("🚀🚀🚀 开始监听 astream_events...")
-    
+
     try:
-        # 🔥 开发环境：每次都重新创建工作流（确保代码更新生效）
-        workflow = get_chat_workflow(force_refresh=True)
-        
-        async for event in workflow.astream_events(initial_state, config=config, version="v2"):
+        async for event in get_chat_workflow().astream_events(initial_state, config=config, version="v2"):
             event_type = event.get("event")
             event_count += 1
-            event_types_seen.add(event_type)  # 🔍 记录事件类型
-            
-            # 🔍 记录前50个事件的详细信息
-            if event_count <= 50:
-                event_name = event.get("name", "unknown")
-                print(f"📡 Event #{event_count}: type={event_type}, name={event_name}", flush=True)
-                logger.info(f"📡 Event #{event_count}: type={event_type}, name={event_name}")
-            
+
+            # 每10个事件记录一次（避免日志过多）
+            if event_count % 10 == 0:
+                logger.debug(f"已处理 {event_count} 个事件，当前类型: {event_type}")
+
             # 监听 LLM Token 使用情况
             if event_type == "on_chat_model_end":
                 output = event.get("data", {}).get("output")
@@ -177,47 +160,37 @@ async def run_chat_workflow_streaming(
                     usage = output.usage_metadata
                     total_input_tokens += usage.get('input_tokens', 0)
                     total_output_tokens += usage.get('output_tokens', 0)
-                    
+
                     # 更新 Laminar Span 的 Token 统计
                     Laminar.set_span_attributes({
                         "llm.usage.input_tokens": total_input_tokens,
                         "llm.usage.output_tokens": total_output_tokens,
                         "llm.usage.total_tokens": total_input_tokens + total_output_tokens
                     })
-            
+
             # 尝试监听多种流式事件类型
             if event_type in ["on_chat_model_stream", "on_llm_stream", "on_chain_stream"]:
                 chunk = event.get("data", {}).get("chunk")
-                print(f"🔍 检测到流式事件: {event_type}, chunk={chunk}", flush=True)
                 if chunk and hasattr(chunk, "content"):
                     content = chunk.content
                     if content:
                         has_output = True
-                        print(f"🔥 捕获到流式chunk ({event_type}): [{content}]", flush=True)
-                        logger.info(f"🔥 捕获到流式chunk ({event_type}): [{content}]")
+                        logger.debug(f"捕获到流式chunk ({event_type}): {content[:50]}...")
                         yield content
-        
-        print(f"✅ 工作流完成: 事件数={event_count}, 流式输出={has_output}", flush=True)
-        print(f"🔍 收到的事件类型: {sorted(event_types_seen)}", flush=True)
+
         logger.info(f"✅ 工作流完成: 事件数={event_count}, 流式输出={has_output}")
-        logger.info(f"🔍 收到的事件类型: {sorted(event_types_seen)}")
-        
+
         # 兜底逻辑：仅在完全没有输出时触发
         if not has_output:
-            print("⚠️ 未捕获到流式输出，使用兜底逻辑（不会重新执行工作流）", flush=True)
-            print(f"🔍 期望的事件类型: ['on_chat_model_stream', 'on_llm_stream', 'on_chain_stream']", flush=True)
-            print(f"🔍 实际收到的事件类型: {sorted(event_types_seen)}", flush=True)
             logger.warning("⚠️ 未捕获到流式输出，使用兜底逻辑（不会重新执行工作流）")
-            logger.warning(f"🔍 期望的事件类型: ['on_chat_model_stream', 'on_llm_stream', 'on_chain_stream']")
-            logger.warning(f"🔍 实际收到的事件类型: {sorted(event_types_seen)}")
-            
-            # ❌ 不要重新执行工作流！只从已完成的状态中获取结果
-            # 这里的问题是：astream_events 已经执行完了工作流，只是没有 yield 出来
-            # 我们应该从最终状态获取结果，而不是再次 invoke
-            
-            # 由于 astream_events 不返回最终状态，我们只能提示错误
-            yield "[提示] 流式输出异常，请重试"
-    
+
+        # ❌ 不要重新执行工作流！只从已完成的状态中获取结果
+        # 这里的问题是：astream_events 已经执行完了工作流，只是没有 yield 出来
+        # 我们应该从最终状态获取结果，而不是再次 invoke
+
+        # 由于 astream_events 不返回最终状态，我们只能提示错误
+        yield "[提示] 流式输出异常，请重试"
+
     except Exception as e:
         logger.error(f"流式工作流执行失败: {str(e)}", exc_info=True)
         yield f"[错误] {str(e)}"
