@@ -119,6 +119,27 @@ SENSITIVE_TOPIC_RESPONSE = """我理解这个话题对你很重要，但我的�
 
 我们可以聊聊你现在的感受，或者其他让你困扰的事情吗？"""
 
+# 工单判断分析 Prompt
+TICKET_ANALYSIS_PROMPT = """你是一个专业的对话分析助手。请分析以下对话，判断用户是否需要创建工单（维权、投诉、法律帮助等）。
+
+对话历史：
+{history}
+
+用户最新消息：{user_input}
+
+AI回答：{llm_response}
+
+---
+请严格按照以下 JSON 格式回答（必须是有效的 JSON）：
+{{"need_ticket": true/false, "reason": "判断理由"}}
+
+判断标准：
+- 如果用户提到：工资拖欠、劳动纠纷、工伤、违法辞退、合同纠纷、投诉、维权、法律咨询等，设为 true
+- 如果只是日常聊天、情感倾诉、咨询建议（但不需要正式维权），设为 false
+
+只返回 JSON，不要其他内容。
+"""
+
 
 def get_system_prompt():
     """获取系统Prompt"""
@@ -128,6 +149,11 @@ def get_system_prompt():
 def get_conversation_template():
     """获取对话模板"""
     return CONVERSATION_TEMPLATE
+
+
+def get_ticket_analysis_prompt():
+    """获取工单判断 Prompt 模板"""
+    return TICKET_ANALYSIS_PROMPT
 
 
 def build_full_prompt(

@@ -1,7 +1,7 @@
 # 智能体接口 - Agent API
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
-from app.schemas.agent_schema import WorkflowChatRequest
+from app.schemas.agent_schema import WorkflowChatRequest, HistoryResponse
 from app.modules.workflow.workflows.workflow import run_chat_workflow_streaming
 from app.modules.chromadb.core.chromadb_core import chromadb_core
 from app.core.security import get_current_user, get_current_session
@@ -78,7 +78,8 @@ async def chat_with_workflow(request: WorkflowChatRequest, user: dict = Depends(
                     user_input=request.user_input,
                     session_id=session_id,
                     user_id=user_id,
-                    username=user.get("username")
+                    username=user.get("username"),
+                    user_confirmed_ticket=request.user_confirmed_ticket  # 传递用户确认状态
                 ):
                     # SSE 格式：data: 内容\n\n
                     yield f"data: {content}\n\n"
@@ -102,14 +103,6 @@ async def chat_with_workflow(request: WorkflowChatRequest, user: dict = Depends(
         async def error_generator():
             yield f"data: [ERROR] {str(e)}\n\n"
         return StreamingResponse(error_generator(), media_type="text/event-stream")
-
-
-class HistoryResponse(BaseModel):
-    """历史对话响应模型"""
-    user_id: str
-    session_id: str
-    total_count: int
-    messages: List[dict]
 
 
 @router.get("/history/{session_id}", response_model=HistoryResponse, summary="获取指定会话的所有历史对话")

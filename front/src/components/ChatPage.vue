@@ -55,6 +55,23 @@
         {{ isLoading ? '发送中...' : '发送' }}
       </button>
     </div>
+
+    <!-- 工单确认弹窗 -->
+    <div v-if="showTicketConfirmation" class="ticket-modal-overlay" @click.self="handleTicketReject">
+      <div class="ticket-modal">
+        <div class="ticket-modal-header">
+          <h3>📝 维权工单确认</h3>
+        </div>
+        <div class="ticket-modal-body">
+          <p class="ticket-reason">{{ ticketReason }}</p>
+          <p class="ticket-question">是否需要我帮您创建维权工单？</p>
+        </div>
+        <div class="ticket-modal-footer">
+          <button class="ticket-btn ticket-btn-cancel" @click="handleTicketReject">不用了</button>
+          <button class="ticket-btn ticket-btn-confirm" @click="handleTicketConfirm">好的，创建工单</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -77,6 +94,11 @@ const provider = ref<'deepseek'>('deepseek');  // 固定为 deepseek
 const inputText = ref('');
 const isLoading = ref(false);
 const messagesContainer = ref<HTMLElement | null>(null);
+
+// 工单确认弹窗相关状态
+const showTicketConfirmation = ref(false);  // 是否显示弹窗
+const ticketReason = ref('');  // 工单创建原因
+const pendingUserInput = ref('');  // 待处理的用户输入
 
 // 消息列表（初始显示欢迎消息）
 const messages = ref<ChatMessage[]>([
@@ -105,6 +127,30 @@ const goBack = () => {
   window.history.back();
 };
 
+// 工单确认处理
+const handleTicketConfirm = () => {
+  console.log('[Ticket] 用户确认创建工单');
+  showTicketConfirmation.value = false;
+  
+  // TODO: 后续实现创建工单逻辑
+  // 现在暂时只显示确认消息，不发送新请求（避免重复触发 workflow）
+  messages.value.push({
+    role: 'assistant',
+    content: '✅ 好的，我已经记录了您的维权需求。我们的工作人员会尽快处理并与您联系。'
+  });
+  
+  scrollToBottom();
+  pendingUserInput.value = '';
+  ticketReason.value = '';
+};
+
+const handleTicketReject = () => {
+  console.log('[Ticket] 用户拒绝创建工单');
+  showTicketConfirmation.value = false;
+  pendingUserInput.value = '';
+  ticketReason.value = '';
+};
+
 
 
 // 发送消息（统一使用 Workflow 接口）
@@ -127,7 +173,7 @@ const handleSend = async () => {
 };
 
 // Workflow 流式发送
-const handleWorkflowSend = async (userMessage: string) => {
+const handleWorkflowSend = async (userMessage: string, additionalState: any = {}) => {
   // 添加助手消息占位符
   const assistantMessageIndex = messages.value.length;
   messages.value.push({
@@ -143,14 +189,23 @@ const handleWorkflowSend = async (userMessage: string) => {
     
     const urlWithToken = `http://localhost:8000/api/agent/chat?session_token=${sessionToken.value}`;
     
+    // 构建请求体，支持额外的 state 传递
+    const requestBody: any = {
+      user_input: userMessage
+    };
+    
+    // 如果有额外的 state，合并到请求体
+    if (Object.keys(additionalState).length > 0) {
+      Object.assign(requestBody, additionalState);
+      console.log('[Workflow] 携带额外 state:', additionalState);
+    }
+    
     const response = await fetch(urlWithToken, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        user_input: userMessage
-      })
+      body: JSON.stringify(requestBody)
     });
 
     if (!response.ok) {
@@ -165,6 +220,7 @@ const handleWorkflowSend = async (userMessage: string) => {
     }
 
     let buffer = ''; // 缓存不完整的 SSE 消息
+    let workflowState: any = {}; // 存储工作流状态
 
     while (true) {
       const { done, value } = await reader.read();
@@ -193,6 +249,15 @@ const handleWorkflowSend = async (userMessage: string) => {
               if (msg) {
                 msg.content = `错误: ${content}`;
               }
+            } else if (content.startsWith('[STATE]')) {
+              // 处理状态数据
+              try {
+                const stateData = JSON.parse(content.substring(7));
+                workflowState = { ...workflowState, ...stateData };
+                console.log('[Workflow] 收到 State 更新:', stateData);
+              } catch (e) {
+                console.error('[Workflow] State 解析失败:', e);
+              }
             } else if (content.trim()) {
               // 正常的内容数据
               const msg = messages.value[assistantMessageIndex];
@@ -207,6 +272,14 @@ const handleWorkflowSend = async (userMessage: string) => {
     }
     
     console.log('[Workflow] 对话完成');
+    
+    // 检查是否需要显示工单确认弹窗
+    if (workflowState.need_create_ticket === true && !additionalState.user_confirmed_ticket) {
+      console.log('[Ticket] 检测到需要创建工单，显示确认弹窗');
+      ticketReason.value = workflowState.ticket_reason || '检测到您可能需要维权帮助。';
+      pendingUserInput.value = userMessage;
+      showTicketConfirmation.value = true;
+    }
     
   } catch (error: any) {
     console.error('[Workflow] 错误:', error);
@@ -618,5 +691,119 @@ onMounted(async () => {
   color: #999;
   font-size: 12px;
   white-space: nowrap;
+}
+
+/* 工单确认弹窗 */
+.ticket-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.ticket-modal {
+  background: #fff;
+  border-radius: 16px;
+  width: 90%;
+  max-width: 400px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.ticket-modal-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.ticket-modal-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #333;
+}
+
+.ticket-modal-body {
+  padding: 24px;
+}
+
+.ticket-reason {
+  margin: 0 0 16px 0;
+  padding: 12px 16px;
+  background: #f5f5f5;
+  border-left: 3px solid #07c160;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #555;
+}
+
+.ticket-question {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 500;
+  color: #333;
+}
+
+.ticket-modal-footer {
+  padding: 16px 24px;
+  display: flex;
+  gap: 12px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.ticket-btn {
+  flex: 1;
+  height: 44px;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ticket-btn-cancel {
+  background: #f5f5f5;
+  color: #666;
+}
+
+.ticket-btn-cancel:hover {
+  background: #e5e5e5;
+}
+
+.ticket-btn-confirm {
+  background: #07c160;
+  color: #fff;
+}
+
+.ticket-btn-confirm:hover {
+  background: #06ad56;
 }
 </style>

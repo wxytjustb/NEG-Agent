@@ -42,6 +42,12 @@ class WorkflowState(TypedDict, total=False):
     # LLM 调用
     llm_response: str  # LLM 生成的回答
     
+    # 工单管理
+    need_create_ticket: bool  # 是否需要创建工单
+    ticket_reason: str  # 工单判断理由
+    user_confirmed_ticket: bool  # 用户是否确认创建工单（用户点击确认后设为 True）
+    ticket_created: bool  # 工单是否已创建
+    
     # 流式输出控制
     is_streaming: bool  # 是否使用流式输出
     

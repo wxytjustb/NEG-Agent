@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 # 关闭冗余日志
 logging.getLogger('httpx').setLevel(logging.WARNING)
 logging.getLogger('app.modules.workflow.core.graph').setLevel(logging.WARNING)
-logging.getLogger('app.modules.workflow.workflows.workflow').setLevel(logging.WARNING)
+logging.getLogger('app.modules.workflow.workflows.workflow').setLevel(logging.WARNING)  # 暂时开启调试
 logging.getLogger('app.modules.workflow.nodes.user_info').setLevel(logging.WARNING)
 logging.getLogger('app.modules.workflow.nodes.Intent_recognition').setLevel(logging.WARNING)
 logging.getLogger('app.modules.workflow.nodes.llm_answer').setLevel(logging.WARNING)
