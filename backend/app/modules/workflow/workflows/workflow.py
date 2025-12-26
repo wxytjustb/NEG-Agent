@@ -189,7 +189,7 @@ async def run_chat_workflow_streaming(
         # 我们应该从最终状态获取结果，而不是再次 invoke
 
         # 由于 astream_events 不返回最终状态，我们只能提示错误
-        yield "[提示] 流式输出异常，请重试"
+            yield "[提示] 流式输出异常，请重试"
 
     except Exception as e:
         logger.error(f"流式工作流执行失败: {str(e)}", exc_info=True)
