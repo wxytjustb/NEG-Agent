@@ -221,27 +221,58 @@ const handleTicketFormSubmit = async () => {
     isSubmittingTicket.value = true;
     console.log('[TicketForm] 开始提交工单:', ticketFormData.value);
     
-    // 获取 access_token
-    const accessToken = localStorage.getItem('access_token');
+    // 获取 access_token（优先从 URL，其次从 localStorage）
+    const urlParams = new URLSearchParams(window.location.search);
+    let accessToken = urlParams.get('access_token');
+    
     if (!accessToken) {
-      throw new Error('未找到用户认证信息');
+      accessToken = localStorage.getItem('access_token');
     }
     
-    // 直接调用 Golang 接口（使用 x-token 请求头）
-    const response = await fetch('https://app-api.roky.work/app/help/postHelpRequest', {
+    if (!accessToken) {
+      throw new Error('未找到用户认证信息，请确保 URL 中包含 access_token 参数');
+    }
+    
+    console.log('[TicketForm] 使用 access_token:', accessToken.substring(0, 20) + '...');
+    
+    // 构建请求数据（将 images 数组转为字符串）
+    const requestData = {
+      content: ticketFormData.value.content,
+      contact: ticketFormData.value.contact,
+      images: ticketFormData.value.images.join(',')  // ✅ 数组转字符串
+    };
+    
+    console.log('[TicketForm] 请求数据:', requestData);
+    
+    // 直接调用 Golang 接口（使用 Vite 代理，避免 CORS 问题）
+    const response = await fetch('/app/help/postHelpRequest', {
       method: 'POST',
       headers: {
         'x-token': accessToken,  // 使用 x-token 而不是 Authorization
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(ticketFormData.value)
+      body: JSON.stringify(requestData)  // ✅ 使用处理后的数据
     });
     
+    console.log('[TicketForm] 响应状态码:', response.status);
+    console.log('[TicketForm] 响应头:', Object.fromEntries(response.headers.entries()));
+    
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+      const errorText = await response.text();
+      console.error('[TicketForm] HTTP 错误响应:', errorText);
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
     }
     
-    const result = await response.json();
+    const responseText = await response.text();
+    console.log('[TicketForm] 原始响应内容:', responseText);
+    
+    let result;
+    try {
+      result = responseText ? JSON.parse(responseText) : {};
+    } catch (e) {
+      console.error('[TicketForm] JSON 解析失败:', e);
+      throw new Error(`响应不是有效的 JSON: ${responseText}`);
+    }
     console.log('[TicketForm] 工单创建结果:', result);
     
     if (result.code === 200 || result.code === 0) {
