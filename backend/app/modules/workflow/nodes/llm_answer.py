@@ -1,5 +1,6 @@
 # LLM 回答节点 - 构建完整 Prompt 并调用 LLM 生成回答
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+from langchain_core.runnables import RunnableConfig
 from app.modules.workflow.core.state import WorkflowState
 from app.modules.llm.core.llm_core import llm_core
 from app.utils.prompt import build_full_prompt, ANRAN_SYSTEM_PROMPT
@@ -10,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 @observe(name="llm_answer_node", tags=["node", "llm", "generation"])
-async def async_llm_stream_answer_node(state: WorkflowState):
+async def async_llm_stream_answer_node(state: WorkflowState, config: Optional[RunnableConfig] = None):
     """LLM 异步流式回答节点 - 供 astream_events 使用"""
     try:
         user_input = state.get("user_input", "")
@@ -39,7 +40,8 @@ async def async_llm_stream_answer_node(state: WorkflowState):
         logger.info("🔥 开始调用 LLM 生成...")
         print(f"🔥🔥🔥 LLM streaming={llm.streaming}", flush=True)
         
-        response = await llm.ainvoke(full_prompt)
+        # 传递 config 以确保回调（callbacks）正确传播，这对于 astream_events 捕获 on_chat_model_stream 至关重要
+        response = await llm.ainvoke(full_prompt, config=config)
         full_response = response.content if hasattr(response, 'content') else str(response)
         
         print(f"✅✅✅ LLM 生成完成: {full_response[:50]}...", flush=True)
