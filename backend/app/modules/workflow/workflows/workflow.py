@@ -181,15 +181,15 @@ async def run_chat_workflow_streaming(
         logger.info(f"✅ 工作流完成: 事件数={event_count}, 流式输出={has_output}")
         
         # 兜底逻辑：仅在完全没有输出时触发
-        if not has_output:
-            logger.warning("⚠️ 未捕获到流式输出，使用兜底逻辑（不会重新执行工作流）")
+        # if not has_output:
+        #     logger.warning("⚠️ 未捕获到流式输出，使用兜底逻辑（不会重新执行工作流）")
             
             # ❌ 不要重新执行工作流！只从已完成的状态中获取结果
             # 这里的问题是：astream_events 已经执行完了工作流，只是没有 yield 出来
             # 我们应该从最终状态获取结果，而不是再次 invoke
             
             # 由于 astream_events 不返回最终状态，我们只能提示错误
-            yield "[提示] 流式输出异常，请重试"
+            # yield "[提示] 流式输出异常，请重试"
     
     except Exception as e:
         logger.error(f"流式工作流执行失败: {str(e)}", exc_info=True)
