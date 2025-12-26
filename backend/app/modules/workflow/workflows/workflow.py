@@ -82,18 +82,25 @@ def create_chat_workflow():
 
 # 全局工作流实例（懒加载）
 _chat_workflow = None
+_workflow_version = 1  # 🔥 工作流版本号，用于强制刷新
 
 
-def get_chat_workflow():
+def get_chat_workflow(force_refresh: bool = False):
     """获取对话工作流实例（单例模式）
+    
+    Args:
+        force_refresh: 是否强制重新创建工作流（开发时使用）
     
     Returns:
         编译后的对话工作流
     """
     global _chat_workflow
     
-    if _chat_workflow is None:
-        logger.info("首次调用，创建工作流实例...")
+    if _chat_workflow is None or force_refresh:
+        if force_refresh:
+            logger.info("🔄 强制刷新工作流实例...")
+        else:
+            logger.info("首次调用，创建工作流实例...")
         _chat_workflow = create_chat_workflow()
     
     return _chat_workflow
@@ -149,7 +156,10 @@ async def run_chat_workflow_streaming(
     logger.info("🚀🚀🚀 开始监听 astream_events...")
     
     try:
-        async for event in get_chat_workflow().astream_events(initial_state, config=config, version="v2"):
+        # 🔥 开发环境：每次都重新创建工作流（确保代码更新生效）
+        workflow = get_chat_workflow(force_refresh=True)
+        
+        async for event in workflow.astream_events(initial_state, config=config, version="v2"):
             event_type = event.get("event")
             event_count += 1
             event_types_seen.add(event_type)  # 🔍 记录事件类型

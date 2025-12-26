@@ -34,19 +34,16 @@ async def async_llm_stream_answer_node(state: WorkflowState):
             max_tokens=2000
         )
         
-        # ✅ 使用 astream 产生流式输出，让 astream_events 能够监听到流式事件
-        # LangGraph 的 astream_events 会捕获 on_chat_model_stream 事件
-        logger.info("🔥 开始调用 LLM 流式生成...")
-        full_response = ""
-        chunk_count = 0
-        async for chunk in llm.astream(full_prompt):
-            if hasattr(chunk, 'content') and chunk.content:
-                chunk_count += 1
-                full_response += chunk.content
-                if chunk_count <= 5:  # 只记录前5个chunk
-                    logger.info(f"🔥 LLM Chunk #{chunk_count}: [{chunk.content}]")
+        # 🔥 关键：使用 ainvoke，LangGraph 的 astream_events 会自动捕获流式输出
+        # 当 streaming=True 时，ainvoke 会在内部流式处理，astream_events 能监听到
+        logger.info("🔥 开始调用 LLM 生成...")
+        print(f"🔥🔥🔥 LLM streaming={llm.streaming}", flush=True)
         
-        logger.info(f"✅ LLM 流式生成完成，共 {chunk_count} 个 chunks")
+        response = await llm.ainvoke(full_prompt)
+        full_response = response.content if hasattr(response, 'content') else str(response)
+        
+        print(f"✅✅✅ LLM 生成完成: {full_response[:50]}...", flush=True)
+        logger.info(f"✅ LLM 生成完成: {full_response[:50]}...")
         
         return {
             "full_prompt": full_prompt,
