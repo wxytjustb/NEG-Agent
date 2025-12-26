@@ -142,10 +142,16 @@ async def run_chat_workflow_streaming(
     has_output = False
     total_input_tokens = 0
     total_output_tokens = 0
+    event_count = 0  # 调试：统计事件数量
     
     try:
         async for event in get_chat_workflow().astream_events(initial_state, config=config, version="v2"):
             event_type = event.get("event")
+            event_count += 1
+            
+            # 每10个事件记录一次（避免日志过多）
+            if event_count % 10 == 0:
+                logger.debug(f"已处理 {event_count} 个事件，当前类型: {event_type}")
             
             # 监听 LLM Token 使用情况
             if event_type == "on_chat_model_end":
@@ -171,16 +177,18 @@ async def run_chat_workflow_streaming(
                         has_output = True
                         yield content
         
-        # 兜底逻辑
+        logger.info(f"✅ 工作流完成: 事件数={event_count}, 流式输出={has_output}")
+        
+        # 兜底逻辑：仅在完全没有输出时触发
         if not has_output:
-            final_state = await get_chat_workflow().ainvoke(initial_state, config=config)
-            llm_response = final_state.get("llm_response", "")
+            logger.warning("⚠️ 未捕获到流式输出，使用兜底逻辑（不会重新执行工作流）")
             
-            if llm_response:
-                for i in range(0, len(llm_response), 10):
-                    yield llm_response[i:i+10]
-            else:
-                yield "[错误] 工作流未生成回答"
+            # ❌ 不要重新执行工作流！只从已完成的状态中获取结果
+            # 这里的问题是：astream_events 已经执行完了工作流，只是没有 yield 出来
+            # 我们应该从最终状态获取结果，而不是再次 invoke
+            
+            # 由于 astream_events 不返回最终状态，我们只能提示错误
+            yield "[提示] 流式输出异常，请重试"
     
     except Exception as e:
         logger.error(f"流式工作流执行失败: {str(e)}", exc_info=True)
