@@ -164,7 +164,7 @@ const handleWorkflowSend = async (userMessage: string) => {
       throw new Error('无法获取响应流');
     }
 
-    let buffer = ''; // 缓存不完整的 JSON
+    let buffer = ''; // 缓存不完整的 SSE 消息
 
     while (true) {
       const { done, value } = await reader.read();
@@ -173,38 +173,35 @@ const handleWorkflowSend = async (userMessage: string) => {
       const chunk = decoder.decode(value, { stream: true });
       buffer += chunk;
       
-      // 按行切分 JSON
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || ''; // 保留最后一个不完整的行
+      // 处理 SSE 格式的数据 - SSE 使用双换行符分隔消息
+      const messages_sse = buffer.split('\n\n');
+      buffer = messages_sse.pop() || ''; // 保留最后一个可能不完整的消息
 
-      for (const line of lines) {
-        if (!line.trim()) continue; // 跳过空行
-        
-        console.log('[Workflow] 收到 JSON 行:', line); // 打印每个 JSON 行
-        
-        try {
-          const jsonData = JSON.parse(line);
-          console.log('[Workflow] 解析后的数据:', jsonData); // 打印解析后的对象
-          
-          if (jsonData.type === 'token') {
-            console.log('[Workflow] 收到 token:', jsonData.content); // 打印每个 token
-            // 正常的 token 数据
-            const msg = messages.value[assistantMessageIndex];
-            if (msg) {
-              msg.content += jsonData.content;
-            }
-            scrollToBottom();
-          } else if (jsonData.type === 'done') {
-            console.log('[Workflow] ✅ 流式传输完成');
-          } else if (jsonData.type === 'error') {
-            console.log('[Workflow] ❌ 收到错误:', jsonData.message);
-            const msg = messages.value[assistantMessageIndex];
-            if (msg) {
-              msg.content = `错误: ${jsonData.message}`;
+      for (const message of messages_sse) {
+        // 每个消息可能包含多行，我们只处理 data: 开头的行
+        const lines = message.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const content = line.substring(6);
+            console.log('[Workflow] 收到 SSE 数据:', content);
+            
+            if (content === '[DONE]') {
+              console.log('[Workflow] ✅ 流式传输完成');
+            } else if (content.startsWith('[ERROR]')) {
+              console.log('[Workflow] ❌ 收到错误:', content);
+              const msg = messages.value[assistantMessageIndex];
+              if (msg) {
+                msg.content = `错误: ${content}`;
+              }
+            } else if (content.trim()) {
+              // 正常的内容数据
+              const msg = messages.value[assistantMessageIndex];
+              if (msg) {
+                msg.content += content;
+              }
+              scrollToBottom();
             }
           }
-        } catch (parseError) {
-          console.warn('[Workflow] JSON 解析错误:', line, parseError);
         }
       }
     }

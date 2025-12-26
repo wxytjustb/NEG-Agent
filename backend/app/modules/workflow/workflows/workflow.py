@@ -168,13 +168,14 @@ async def run_chat_workflow_streaming(
                         "llm.usage.total_tokens": total_input_tokens + total_output_tokens
                     })
             
-            # 流式内容输出
-            if event_type == "on_chat_model_stream":
+            # 尝试监听多种流式事件类型
+            if event_type in ["on_chat_model_stream", "on_llm_stream", "on_chain_stream"]:
                 chunk = event.get("data", {}).get("chunk")
                 if chunk and hasattr(chunk, "content"):
                     content = chunk.content
                     if content:
                         has_output = True
+                        logger.debug(f"捕获到流式chunk ({event_type}): {content[:50]}...")
                         yield content
         
         logger.info(f"✅ 工作流完成: 事件数={event_count}, 流式输出={has_output}")

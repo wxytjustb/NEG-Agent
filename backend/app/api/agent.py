@@ -9,38 +9,10 @@ from app.core.session_token import create_or_get_session
 from pydantic import BaseModel
 from typing import List, Optional
 import logging
-import hashlib
-import time
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/agent", tags=["Agent"])
-
-# 请求去重缓存（内存级，保存最近 5 秒内的请求）
-_recent_requests = {}
-
-def is_duplicate_request(session_id: str, user_input: str, window_seconds: int = 5) -> bool:
-    """检查是否是重复请求"""
-    # 生成请求标识
-    request_key = hashlib.md5(f"{session_id}:{user_input}".encode()).hexdigest()
-    current_time = time.time()
-    
-    # 检查是否存在最近的重复请求
-    if request_key in _recent_requests:
-        last_time = _recent_requests[request_key]
-        if current_time - last_time < window_seconds:
-            logger.warning(f"⚠️ 检测到重复请求: session={session_id[:20]}..., 距离上次 {current_time - last_time:.2f} 秒")
-            return True
-    
-    # 记录请求时间
-    _recent_requests[request_key] = current_time
-    
-    # 清理过期记录（避免内存泄漏）
-    expired_keys = [k for k, v in _recent_requests.items() if current_time - v > window_seconds]
-    for k in expired_keys:
-        del _recent_requests[k]
-    
-    return False
 
 
 @router.post("/init", summary="初始化会话")
@@ -100,20 +72,7 @@ async def chat_with_workflow(request: WorkflowChatRequest, user: dict = Depends(
         if not user_id or not session_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="无法获取用户ID")
         
-        # 检查重复请求
-        if is_duplicate_request(session_id, request.user_input):
-            import json
-            async def duplicate_response():
-                error_chunk = json.dumps({
-                    "type": "error",
-                    "message": "请求过于频繁，请稍后再试",
-                    "session_id": session_id
-                }, ensure_ascii=False)
-                yield f"{error_chunk}\n"
-            return StreamingResponse(duplicate_response(), media_type="application/x-ndjson")
-        
-        async def json_stream_generator():
-            import json
+        async def sse_generator():
             try:
                 async for content in run_chat_workflow_streaming(
                     user_input=request.user_input,
@@ -121,47 +80,28 @@ async def chat_with_workflow(request: WorkflowChatRequest, user: dict = Depends(
                     user_id=user_id,
                     username=user.get("username")
                 ):
-                    # 每个 token 包装为 JSON
-                    chunk = json.dumps({
-                        "type": "token",
-                        "content": content,
-                        "session_id": session_id
-                    }, ensure_ascii=False)
-                    yield f"{chunk}\n"
+                    # SSE 格式：data: 内容\n\n
+                    yield f"data: {content}\n\n"
                 
                 # 发送完成信号
-                done_chunk = json.dumps({
-                    "type": "done",
-                    "session_id": session_id
-                }, ensure_ascii=False)
-                yield f"{done_chunk}\n"
+                yield "data: [DONE]\n\n"
                 
             except Exception as e:
                 logger.error(f"Workflow 流式错误: {str(e)}", exc_info=True)
-                error_chunk = json.dumps({
-                    "type": "error",
-                    "message": str(e),
-                    "session_id": session_id
-                }, ensure_ascii=False)
-                yield f"{error_chunk}\n"
+                yield f"data: [ERROR] {str(e)}\n\n"
         
         headers = {
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no"
         }
-        return StreamingResponse(json_stream_generator(), media_type="application/x-ndjson", headers=headers)
+        return StreamingResponse(sse_generator(), media_type="text/event-stream", headers=headers)
         
     except Exception as e:
         logger.error(f"Workflow 失败: {str(e)}", exc_info=True)
         async def error_generator():
-            import json
-            error_chunk = json.dumps({
-                "type": "error",
-                "message": str(e)
-            }, ensure_ascii=False)
-            yield f"{error_chunk}\n"
-        return StreamingResponse(error_generator(), media_type="application/x-ndjson")
+            yield f"data: [ERROR] {str(e)}\n\n"
+        return StreamingResponse(error_generator(), media_type="text/event-stream")
 
 
 class HistoryResponse(BaseModel):

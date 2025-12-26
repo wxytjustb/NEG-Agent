@@ -34,14 +34,13 @@ async def async_llm_stream_answer_node(state: WorkflowState):
             max_tokens=2000
         )
         
-        full_response = ""
-        async for chunk in llm.astream(full_prompt):
-            if hasattr(chunk, 'content') and chunk.content:
-                full_response += str(chunk.content)
+        # ✅ 使用 ainvoke 而不是 astream，让 astream_events 监听 LLM 调用
+        # LangGraph 的 astream_events 会自动监听 LLM 的流式输出
+        result = await llm.ainvoke(full_prompt)
         
         return {
             "full_prompt": full_prompt,
-            "llm_response": full_response
+            "llm_response": result.content if hasattr(result, 'content') else str(result)
         }
         
     except Exception as e:
