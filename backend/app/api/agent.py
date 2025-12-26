@@ -57,7 +57,14 @@ async def init_session(user: dict = Depends(get_current_user)):
 
 @router.post("/chat", summary="Workflow 对话接口（基于 LangGraph - 流式）")
 async def chat_with_workflow(request: WorkflowChatRequest, user: dict = Depends(get_current_session)):
-    """流式对话 - 使用 LangGraph 的 astream_events 监听 LLM 流式输出"""
+    """
+    流式对话 - 返回 JSON流式数据
+    
+    响应格式：每个 token 都是一个独立的 JSON 对象
+    {"type": "token", "content": "你", "session_id": "xxx"}
+    {"type": "token", "content": "好", "session_id": "xxx"}
+    {"type": "done", "session_id": "xxx"}
+    """
     try:
         user_id = user.get("user_id")
         session_id = user.get("session_token")
@@ -65,7 +72,8 @@ async def chat_with_workflow(request: WorkflowChatRequest, user: dict = Depends(
         if not user_id or not session_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="无法获取用户ID")
         
-        async def sse_generator():
+        async def json_stream_generator():
+            import json
             try:
                 async for content in run_chat_workflow_streaming(
                     user_input=request.user_input,
@@ -73,24 +81,47 @@ async def chat_with_workflow(request: WorkflowChatRequest, user: dict = Depends(
                     user_id=user_id,
                     username=user.get("username")
                 ):
-                    yield f"data: {content}\n\n"
+                    # 每个 token 包装为 JSON
+                    chunk = json.dumps({
+                        "type": "token",
+                        "content": content,
+                        "session_id": session_id
+                    }, ensure_ascii=False)
+                    yield f"{chunk}\n"
                 
-                yield "data: [DONE]\n\n"
+                # 发送完成信号
+                done_chunk = json.dumps({
+                    "type": "done",
+                    "session_id": session_id
+                }, ensure_ascii=False)
+                yield f"{done_chunk}\n"
                 
             except Exception as e:
                 logger.error(f"Workflow 流式错误: {str(e)}", exc_info=True)
-                yield f"data: [ERROR] {str(e)}\n\n"
-                yield "data: [DONE]\n\n"
+                error_chunk = json.dumps({
+                    "type": "error",
+                    "message": str(e),
+                    "session_id": session_id
+                }, ensure_ascii=False)
+                yield f"{error_chunk}\n"
         
-        headers = {"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"}
-        return StreamingResponse(sse_generator(), media_type="text/event-stream", headers=headers)
+        headers = {
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+        return StreamingResponse(json_stream_generator(), media_type="application/x-ndjson", headers=headers)
         
     except Exception as e:
         logger.error(f"Workflow 失败: {str(e)}", exc_info=True)
         async def error_generator():
-            yield f"data: [ERROR] {str(e)}\n\n"
-            yield "data: [DONE]\n\n"
-        return StreamingResponse(error_generator(), media_type="text/event-stream")
+            import json
+            error_chunk = json.dumps({
+                "type": "error",
+                "message": str(e)
+            }, ensure_ascii=False)
+            yield f"{error_chunk}\n"
+        return StreamingResponse(error_generator(), media_type="application/x-ndjson")
 
 
 class HistoryResponse(BaseModel):

@@ -164,37 +164,47 @@ const handleWorkflowSend = async (userMessage: string) => {
       throw new Error('无法获取响应流');
     }
 
+    let buffer = ''; // 缓存不完整的 JSON
+
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
 
       const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split('\n');
+      buffer += chunk;
+      
+      // 按行切分 JSON
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || ''; // 保留最后一个不完整的行
 
       for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6);
+        if (!line.trim()) continue; // 跳过空行
+        
+        console.log('[Workflow] 收到 JSON 行:', line); // 打印每个 JSON 行
+        
+        try {
+          const jsonData = JSON.parse(line);
+          console.log('[Workflow] 解析后的数据:', jsonData); // 打印解析后的对象
           
-          if (data === '[DONE]') {
-            console.log('[Workflow] ✅ 流式传输完成');
-            break;
-          }
-          
-          if (data.startsWith('[ERROR]')) {
-            const errorMsg = data.slice(8);
+          if (jsonData.type === 'token') {
+            console.log('[Workflow] 收到 token:', jsonData.content); // 打印每个 token
+            // 正常的 token 数据
             const msg = messages.value[assistantMessageIndex];
             if (msg) {
-              msg.content = `错误: ${errorMsg}`;
+              msg.content += jsonData.content;
             }
-            break;
+            scrollToBottom();
+          } else if (jsonData.type === 'done') {
+            console.log('[Workflow] ✅ 流式传输完成');
+          } else if (jsonData.type === 'error') {
+            console.log('[Workflow] ❌ 收到错误:', jsonData.message);
+            const msg = messages.value[assistantMessageIndex];
+            if (msg) {
+              msg.content = `错误: ${jsonData.message}`;
+            }
           }
-          
-          // 正常的文本块
-          const msg = messages.value[assistantMessageIndex];
-          if (msg) {
-            msg.content += data;
-          }
-          scrollToBottom();
+        } catch (parseError) {
+          console.warn('[Workflow] JSON 解析错误:', line, parseError);
         }
       }
     }
