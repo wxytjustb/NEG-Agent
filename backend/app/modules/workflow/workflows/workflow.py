@@ -143,15 +143,22 @@ async def run_chat_workflow_streaming(
     total_input_tokens = 0
     total_output_tokens = 0
     event_count = 0  # 调试：统计事件数量
+    event_types_seen = set()  # 🔍 收集所有事件类型用于调试
+    
+    print("🚀🚀🚀 开始监听 astream_events...", flush=True)  # 强制输出
+    logger.info("🚀🚀🚀 开始监听 astream_events...")
     
     try:
         async for event in get_chat_workflow().astream_events(initial_state, config=config, version="v2"):
             event_type = event.get("event")
             event_count += 1
+            event_types_seen.add(event_type)  # 🔍 记录事件类型
             
-            # 每10个事件记录一次（避免日志过多）
-            if event_count % 10 == 0:
-                logger.debug(f"已处理 {event_count} 个事件，当前类型: {event_type}")
+            # 🔍 记录前50个事件的详细信息
+            if event_count <= 50:
+                event_name = event.get("name", "unknown")
+                print(f"📡 Event #{event_count}: type={event_type}, name={event_name}", flush=True)
+                logger.info(f"📡 Event #{event_count}: type={event_type}, name={event_name}")
             
             # 监听 LLM Token 使用情况
             if event_type == "on_chat_model_end":
@@ -171,19 +178,28 @@ async def run_chat_workflow_streaming(
             # 尝试监听多种流式事件类型
             if event_type in ["on_chat_model_stream", "on_llm_stream", "on_chain_stream"]:
                 chunk = event.get("data", {}).get("chunk")
+                print(f"🔍 检测到流式事件: {event_type}, chunk={chunk}", flush=True)
                 if chunk and hasattr(chunk, "content"):
                     content = chunk.content
                     if content:
                         has_output = True
-                        logger.debug(f"捕获到流式chunk ({event_type}): {content[:50]}...")
-                        print(f"🔥 流式输出: [{content}]")  # 添加这行，观察每个 token
+                        print(f"🔥 捕获到流式chunk ({event_type}): [{content}]", flush=True)
+                        logger.info(f"🔥 捕获到流式chunk ({event_type}): [{content}]")
                         yield content
         
+        print(f"✅ 工作流完成: 事件数={event_count}, 流式输出={has_output}", flush=True)
+        print(f"🔍 收到的事件类型: {sorted(event_types_seen)}", flush=True)
         logger.info(f"✅ 工作流完成: 事件数={event_count}, 流式输出={has_output}")
+        logger.info(f"🔍 收到的事件类型: {sorted(event_types_seen)}")
         
         # 兜底逻辑：仅在完全没有输出时触发
         if not has_output:
+            print("⚠️ 未捕获到流式输出，使用兜底逻辑（不会重新执行工作流）", flush=True)
+            print(f"🔍 期望的事件类型: ['on_chat_model_stream', 'on_llm_stream', 'on_chain_stream']", flush=True)
+            print(f"🔍 实际收到的事件类型: {sorted(event_types_seen)}", flush=True)
             logger.warning("⚠️ 未捕获到流式输出，使用兜底逻辑（不会重新执行工作流）")
+            logger.warning(f"🔍 期望的事件类型: ['on_chat_model_stream', 'on_llm_stream', 'on_chain_stream']")
+            logger.warning(f"🔍 实际收到的事件类型: {sorted(event_types_seen)}")
             
             # ❌ 不要重新执行工作流！只从已完成的状态中获取结果
             # 这里的问题是：astream_events 已经执行完了工作流，只是没有 yield 出来
