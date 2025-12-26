@@ -34,13 +34,16 @@ async def async_llm_stream_answer_node(state: WorkflowState):
             max_tokens=2000
         )
         
-        # ✅ 使用 ainvoke 而不是 astream，让 astream_events 监听 LLM 调用
-        # LangGraph 的 astream_events 会自动监听 LLM 的流式输出
-        result = await llm.ainvoke(full_prompt)
+        # ✅ 使用 astream 产生流式输出，让 astream_events 能够监听到流式事件
+        # LangGraph 的 astream_events 会捕获 on_chat_model_stream 事件
+        full_response = ""
+        async for chunk in llm.astream(full_prompt):
+            if hasattr(chunk, 'content') and chunk.content:
+                full_response += chunk.content
         
         return {
             "full_prompt": full_prompt,
-            "llm_response": result.content if hasattr(result, 'content') else str(result)
+            "llm_response": full_response
         }
         
     except Exception as e:
