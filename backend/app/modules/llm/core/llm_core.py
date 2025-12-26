@@ -52,6 +52,7 @@ class LLMCore:
             max_tokens=max_tokens or 2000,
             api_key=SecretStr(self.deepseek_api_key) if self.deepseek_api_key else None,  # type: ignore
             base_url=self.deepseek_api_base,
+            streaming=True,  # 🔥 启用流式输出
         )
     
     def get_default_model_name(self) -> str:
