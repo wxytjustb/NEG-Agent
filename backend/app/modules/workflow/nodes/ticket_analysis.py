@@ -85,10 +85,12 @@ async def async_ticket_analysis_node(state: WorkflowState):
         except Exception as parse_error:
             logger.error(f"❌ JSON 解析失败: {str(parse_error)}，默认不创建工单")
         
-        return {
+        result = {
             "need_create_ticket": need_create_ticket,
             "ticket_reason": ticket_reason
         }
+        logger.info(f"🔍 [ticket_analysis] 返回 State: {result}")
+        return result
         
     except Exception as e:
         logger.error(f"❌ 工单判断节点执行失败: {str(e)}", exc_info=True)
@@ -129,15 +131,19 @@ async def async_ask_user_confirmation_node(state: WorkflowState):
             
             logger.info(f"❓ 需要询问用户确认: {confirmation_message[:50]}...")
             
-            return {
+            result = {
                 "confirmation_message": confirmation_message
             }
+            logger.info(f"🔍 [ask_user_confirmation] 返回 State: {result}")
+            return result
         else:
             # 不需要创建工单，直接跳过
             logger.info("✅ 不需要创建工单，跳过确认环节")
-            return {
+            result = {
                 "confirmation_message": ""
             }
+            logger.info(f"🔍 [ask_user_confirmation] 返回 State: {result}")
+            return result
     
     except Exception as e:
         logger.error(f"❌ 询问用户确认节点执行失败: {str(e)}", exc_info=True)

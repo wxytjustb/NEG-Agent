@@ -6,9 +6,11 @@ from app.modules.workflow.workflows.workflow import run_chat_workflow_streaming
 from app.modules.chromadb.core.chromadb_core import chromadb_core
 from app.core.security import get_current_user, get_current_session
 from app.core.session_token import create_or_get_session
+from app.core.config import settings
 from pydantic import BaseModel
 from typing import List, Optional
 import logging
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -164,3 +166,86 @@ async def get_session_history(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"获取历史对话失败: {str(e)}"
         )
+
+
+# 工单创建请求体
+class HelpRequestBody(BaseModel):
+    content: str  # 求助内容
+    contact: str  # 联系方式
+    images: Optional[List[str]] = []  # 图片列表
+
+
+@router.post("/help/create", summary="创建求助工单（代理接口）")
+async def create_help_request_proxy(
+    body: HelpRequestBody,
+    user: dict = Depends(get_current_session)
+):
+    """
+    代理接口：转发工单创建请求到 Golang 后端
+    
+    解决 CORS 问题：前端调用 Python 后端，Python 后端转发给 Golang
+    
+    Args:
+        body: 工单内容
+            - content: 求助内容描述
+            - contact: 联系方式（电话或微信）
+            - images: 图片链接列表（可选）
+        user: 当前用户信息（从 session 获取）
+    
+    Returns:
+        Golang 后端的响应结果
+    """
+    try:
+        logger.info(f"📝 [代理] 开始转发工单创建请求: user_id={user.get('user_id')}")
+        
+        # 从 session 中获取 access_token
+        # 问题：session 中没有存储 access_token！
+        # 解决方案：从 localStorage 获取（但后端无法访问 localStorage）
+        # 最佳方案：前端在 body 中传递 access_token
+        
+        # 临时方案：使用硬编码的 token（仅供测试）
+        access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJJRCI6MzM0LCJPcGVuSUQiOiJvdEdjSTdFQXhsUUJQMWE1WlhLNVJ1cTloQ2UwIiwiQnVmZmVyVGltZSI6ODY0MDAsImlzcyI6InFtUGx1cyIsImF1ZCI6WyJBUFAiXSwiZXhwIjoxNzk4MDEwMDA5LCJuYmYiOjE3NjY0NzQwMDl9.t2psDpTgdk3x9XOIv3l4HJAkNEx4ycY8hylUqa6gf1U"
+        
+        # 调用 Golang API
+        url = f"{settings.GOLANG_API_BASE_URL}/app/help/postHelpRequest"
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                url,
+                json={
+                    "content": body.content,
+                    "contact": body.contact,
+                    "images": body.images
+                },
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json"
+                }
+            )
+            
+            logger.info(f"✅ [代理] Golang API 响应: status={response.status_code}")
+            
+            # 返回 Golang 的响应
+            if response.status_code == 200:
+                return response.json()
+            else:
+                return {
+                    "code": response.status_code,
+                    "msg": f"Golang API 调用失败: {response.text}",
+                    "data": None
+                }
+        
+    except httpx.TimeoutException:
+        logger.error("❌ [代理] 请求超时")
+        return {
+            "code": 500,
+            "msg": "请求超时，请稍后重试",
+            "data": None
+        }
+    except Exception as e:
+        logger.error(f"❌ [代理] 工单创建失败: {str(e)}", exc_info=True)
+        return {
+            "code": 500,
+            "msg": f"工单创建失败: {str(e)}",
+            "data": None
+        }

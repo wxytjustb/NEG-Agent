@@ -72,6 +72,42 @@
         </div>
       </div>
     </div>
+
+    <!-- 工单表单弹窗（用户确认后显示） -->
+    <div v-if="showTicketForm" class="ticket-modal-overlay" @click.self="handleTicketFormCancel">
+      <div class="ticket-modal ticket-form-modal">
+        <div class="ticket-modal-header">
+          <h3>📋 编辑工单信息</h3>
+        </div>
+        <div class="ticket-modal-body">
+          <div class="form-group">
+            <label class="form-label">问题描述：</label>
+            <textarea 
+              v-model="ticketFormData.content" 
+              class="form-textarea" 
+              rows="6" 
+              placeholder="请描述您遇到的问题..."
+            ></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">联系方式：</label>
+            <input 
+              v-model="ticketFormData.contact" 
+              type="text" 
+              class="form-input" 
+              placeholder="请输入您的电话或微信"
+            />
+          </div>
+          <p class="form-hint">ℹ️ AI 已为您提取了问题描述，您可以进行修改</p>
+        </div>
+        <div class="ticket-modal-footer">
+          <button class="ticket-btn ticket-btn-cancel" @click="handleTicketFormCancel">取消</button>
+          <button class="ticket-btn ticket-btn-confirm" @click="handleTicketFormSubmit" :disabled="!canSubmitTicket">
+            {{ isSubmittingTicket ? '提交中...' : '提交工单' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -96,9 +132,23 @@ const isLoading = ref(false);
 const messagesContainer = ref<HTMLElement | null>(null);
 
 // 工单确认弹窗相关状态
-const showTicketConfirmation = ref(false);  // 是否显示弹窗
+const showTicketConfirmation = ref(false);  // 是否显示确认弹窗
 const ticketReason = ref('');  // 工单创建原因
 const pendingUserInput = ref('');  // 待处理的用户输入
+
+// 工单表单相关状态
+const showTicketForm = ref(false);  // 是否显示表单弹窗
+const isSubmittingTicket = ref(false);  // 是否正在提交工单
+const ticketFormData = ref({
+  content: '',  // 问题描述
+  contact: '',  // 联系方式
+  images: [] as string[]  // 图片列表
+});
+
+// 是否可以提交工单
+const canSubmitTicket = computed(() => {
+  return ticketFormData.value.content.trim().length > 0 && !isSubmittingTicket.value;
+});
 
 // 消息列表（初始显示欢迎消息）
 const messages = ref<ChatMessage[]>([
@@ -132,14 +182,16 @@ const handleTicketConfirm = () => {
   console.log('[Ticket] 用户确认创建工单');
   showTicketConfirmation.value = false;
   
-  // TODO: 后续实现创建工单逻辑
-  // 现在暂时只显示确认消息，不发送新请求（避免重复触发 workflow）
-  messages.value.push({
-    role: 'assistant',
-    content: '✅ 好的，我已经记录了您的维权需求。我们的工作人员会尽快处理并与您联系。'
-  });
+  // 直接显示工单表单，让用户填写详细信息
+  ticketFormData.value = {
+    content: ticketReason.value,  // 使用 AI 分析的理由作为初始内容
+    contact: '',  // 用户手动填写联系方式
+    images: []
+  };
   
-  scrollToBottom();
+  // 显示表单弹窗
+  showTicketForm.value = true;
+  
   pendingUserInput.value = '';
   ticketReason.value = '';
 };
@@ -149,6 +201,81 @@ const handleTicketReject = () => {
   showTicketConfirmation.value = false;
   pendingUserInput.value = '';
   ticketReason.value = '';
+};
+
+// 工单表单处理
+const handleTicketFormCancel = () => {
+  console.log('[TicketForm] 用户取消编辑');
+  showTicketForm.value = false;
+  ticketFormData.value = {
+    content: '',
+    contact: '',
+    images: []
+  };
+};
+
+const handleTicketFormSubmit = async () => {
+  if (!canSubmitTicket.value) return;
+  
+  try {
+    isSubmittingTicket.value = true;
+    console.log('[TicketForm] 开始提交工单:', ticketFormData.value);
+    
+    // 获取 access_token
+    const accessToken = localStorage.getItem('access_token');
+    if (!accessToken) {
+      throw new Error('未找到用户认证信息');
+    }
+    
+    // 直接调用 Golang 接口（使用 x-token 请求头）
+    const response = await fetch('https://app-api.roky.work/app/help/postHelpRequest', {
+      method: 'POST',
+      headers: {
+        'x-token': accessToken,  // 使用 x-token 而不是 Authorization
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(ticketFormData.value)
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    
+    const result = await response.json();
+    console.log('[TicketForm] 工单创建结果:', result);
+    
+    if (result.code === 200 || result.code === 0) {
+      // 成功
+      messages.value.push({
+        role: 'assistant',
+        content: `✅ 工单创建成功！工单编号：${result.data?.id || '未知'}`
+      });
+      showTicketForm.value = false;
+      ticketFormData.value = {
+        content: '',
+        contact: '',
+        images: []
+      };
+    } else {
+      // 失败
+      messages.value.push({
+        role: 'assistant',
+        content: `❌ 工单创建失败：${result.msg || '未知错误'}`
+      });
+    }
+    
+    scrollToBottom();
+    
+  } catch (error: any) {
+    console.error('[TicketForm] 提交失败:', error);
+    messages.value.push({
+      role: 'assistant',
+      content: `❌ 工单提交失败：${error.message}`
+    });
+    scrollToBottom();
+  } finally {
+    isSubmittingTicket.value = false;
+  }
 };
 
 
@@ -280,6 +407,11 @@ const handleWorkflowSend = async (userMessage: string, additionalState: any = {}
       pendingUserInput.value = userMessage;
       showTicketConfirmation.value = true;
     }
+    
+    // 删除：不再需要这个逻辑，因为现在前端直接显示表单
+    // if (workflowState.ticket_content && additionalState.user_confirmed_ticket) {
+    //   ...
+    // }
     
   } catch (error: any) {
     console.error('[Workflow] 错误:', error);
@@ -805,5 +937,71 @@ onMounted(async () => {
 
 .ticket-btn-confirm:hover {
   background: #06ad56;
+}
+
+.ticket-btn-confirm:disabled {
+  background: #c9c9c9;
+  cursor: not-allowed;
+}
+
+/* 工单表单样式 */
+.ticket-form-modal {
+  max-width: 500px;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+}
+
+.form-textarea {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 120px;
+  outline: none;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+
+.form-textarea:focus {
+  border-color: #07c160;
+}
+
+.form-input {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+
+.form-input:focus {
+  border-color: #07c160;
+}
+
+.form-hint {
+  margin: 16px 0 0 0;
+  padding: 10px 12px;
+  background: #e8f5e9;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #4caf50;
+  line-height: 1.5;
 }
 </style>

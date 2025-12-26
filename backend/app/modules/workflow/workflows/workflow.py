@@ -6,6 +6,7 @@ from app.modules.workflow.nodes.llm_answer import async_llm_stream_answer_node
 from app.modules.workflow.nodes.ticket_analysis import async_ticket_analysis_node, async_ask_user_confirmation_node  # 工单判断节点、用户确认节点
 from app.modules.workflow.nodes.user_info import async_user_info_node  # 异步版本（支持 session 缓存）
 from app.modules.workflow.nodes.chromadb_node import get_memory_node, save_memory_node  # ChromaDB 记忆节点
+# 删除：不再需要创建工单节点，前端直接调用 Golang 接口
 from typing import Dict, Any, Optional
 from lmnr import observe, Laminar
 import logging
@@ -59,6 +60,7 @@ def create_chat_workflow():
     builder.add_node("llm_answer", async_llm_stream_answer_node)   # 第4步：LLM回答（异步流式）
     builder.add_node("ticket_analysis", async_ticket_analysis_node) # 第5步：工单判断
     builder.add_node("ask_user_confirmation", async_ask_user_confirmation_node) # 第6步：询问用户确认
+    # 删除：不再需要创建工单节点，前端直接调用 Golang 接口
     builder.add_node("save_memory", save_memory_node)       # 第7步：保存记忆
     
     # 3. 设置入口节点
@@ -69,9 +71,34 @@ def create_chat_workflow():
     builder.add_edge("intent_recognition", "get_memory")     # 意图识别 → 获取记忆
     builder.add_edge("get_memory", "llm_answer")             # 获取记忆 → LLM回答
     builder.add_edge("llm_answer", "ticket_analysis")        # LLM回答 → 工单判断
-    builder.add_edge("ticket_analysis", "ask_user_confirmation") # 工单判断 → 询问用户确认
+    
+    # 条件路由：工单判断 → 是否需要询问用户确认
+    def should_ask_confirmation(state: WorkflowState) -> str:
+        """判断是否需要询问用户确认"""
+        need_ticket = state.get("need_create_ticket", False)
+        
+        # 调试日志
+        logger.info(f"🔍 [should_ask_confirmation] need_create_ticket = {need_ticket}")
+        
+        if need_ticket:
+            logger.info("✅ 需要创建工单，转到确认节点")
+            return "ask_user_confirmation"
+        else:
+            logger.info("❌ 不需要创建工单，直接保存记忆")
+            return "save_memory"
+    
+    builder.add_conditional_edges(
+        "ticket_analysis",
+        should_ask_confirmation,
+        {
+            "ask_user_confirmation": "ask_user_confirmation",
+            "save_memory": "save_memory"
+        }
+    )
+    
+    # 删除：不再需要创建工单的条件路由，用户确认后直接保存记忆，前端调用 Golang 接口
     builder.add_edge("ask_user_confirmation", "save_memory")  # 询问确认 → 保存记忆
-    builder.add_edge("save_memory", END)                     # 保存记忆 → 结束
+    builder.add_edge("save_memory", END)                      # 保存记忆 → 结束
     
     # 5. 验证图结构
     builder.validate()
@@ -80,7 +107,7 @@ def create_chat_workflow():
     workflow = builder.compile()
     
     logger.info("✅ 对话工作流创建完成")
-    logger.info("工作流结构: 用户信息 → 意图识别 → 获取记忆 → LLM回答 → 工单判断 → 询问用户确认 → 保存记忆 → 结束")
+    logger.info("工作流结构: 用户信息 → 意图识别 → 获取记忆 → LLM回答 → 工单判断 → [条件] 询问用户确认 → 保存记忆 → 结束")
     
     return workflow
 
@@ -97,9 +124,9 @@ def get_chat_workflow():
     """
     global _chat_workflow
     
-    if _chat_workflow is None:
-        logger.info("首次调用，创建工作流实例...")
-        _chat_workflow = create_chat_workflow()
+    # 临时强制重新创建（调试用）
+    logger.info("🔄 [调试] 强制重新创建 Workflow...")
+    _chat_workflow = create_chat_workflow()
     
     return _chat_workflow
 
@@ -208,13 +235,16 @@ async def run_chat_workflow_streaming(
         if final_state:
             state_info = {
                 "need_create_ticket": final_state.get("need_create_ticket", False),
-                "ticket_reason": final_state.get("ticket_reason", "")
+                "ticket_reason": final_state.get("ticket_reason", ""),
+                "ticket_content": final_state.get("ticket_content", ""),  # 工单内容
+                "ticket_created": final_state.get("ticket_created", False),  # 是否创建成功
+                "ticket_result": final_state.get("ticket_result", "")  # 创建结果
             }
             # 只有需要创建工单时才返回 state
-            if state_info["need_create_ticket"]:
+            if state_info["need_create_ticket"] or state_info["ticket_created"]:
                 import json
                 logger.info(f"📝 返回工单 State: {state_info}")
-                yield f"[STATE]{json.dumps(state_info)}"
+                yield f"[STATE]{json.dumps(state_info, ensure_ascii=False)}"
 
         # 兜底逻辑：仅在完全没有输出时触发
         if not has_output:

@@ -140,6 +140,29 @@ AI回答：{llm_response}
 只返回 JSON，不要其他内容。
 """
 
+# 工单内容总结 Prompt
+TICKET_SUMMARY_PROMPT = """你是一个专业的维权助手。请根据以下对话历史，总结出用户遇到的核心问题，用于创建求助工单。
+
+对话历史：
+{history}
+
+用户最新输入：{user_input}
+
+AI 回答：{llm_response}
+
+请用简洁、专业的语言总结用户遇到的问题，包含以下要点：
+1. 问题类型（如：工资拖欠、加班问题、劳动合同纠纷等）
+2. 具体情况描述
+3. 时间、金额等关键信息（如有）
+
+要求：
+- 语言简洁明了，不超过200字
+- 重点突出用户的诉求
+- 只输出总结内容，不要有其他解释
+
+总结内容：
+"""
+
 
 def get_system_prompt():
     """获取系统Prompt"""
@@ -154,6 +177,11 @@ def get_conversation_template():
 def get_ticket_analysis_prompt():
     """获取工单判断 Prompt 模板"""
     return TICKET_ANALYSIS_PROMPT
+
+
+def get_ticket_summary_prompt():
+    """获取工单内容总结 Prompt 模板"""
+    return TICKET_SUMMARY_PROMPT
 
 
 def build_full_prompt(
