@@ -1,0 +1,26 @@
+{% extends "admin/index.html" %}
+
+{% block content %}
+{{ block.super }}
+
+<!-- 添加知识库管理入口 -->
+<div class="module" style="margin-top: 20px;">
+    <table>
+        <caption>
+            <a href="/app/aiagent/knowledge/dashboard/" class="section" title="知识库管理">
+                知识库管理
+            </a>
+        </caption>
+        <tbody>
+            <tr>
+                <th scope="row">
+                    <a href="/app/aiagent/knowledge/dashboard/">知识库仪表盘</a>
+                </th>
+                <td>
+                    <a href="/app/aiagent/knowledge/dashboard/" class="viewlink">查看和管理向量数据库</a>
+                </td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+{% endblock %}

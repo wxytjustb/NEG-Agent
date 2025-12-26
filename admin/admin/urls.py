@@ -15,8 +15,11 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, include
+from django.views.generic import RedirectView
 
 urlpatterns = [
-    path('admin1/', admin.site.urls),
+    path('', RedirectView.as_view(url='/admin/', permanent=False)),  # 根路径重定向到 admin
+    path('admin/', admin.site.urls),
+    path('app/aiagent/knowledge/', include('knowledge.urls')),  # 知识库 API
 ]

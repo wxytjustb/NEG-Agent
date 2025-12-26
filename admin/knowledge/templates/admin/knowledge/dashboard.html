@@ -1,0 +1,244 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block title %}知识库管理{% endblock %}
+
+{% block content %}
+<div style="padding: 20px;">
+    <h1>知识库管理</h1>
+    
+    <!-- Collection 选择 -->
+    <div style="margin: 20px 0;">
+        <label for="collection-select">选择 Collection:</label>
+        <input type="text" id="collection-input" placeholder="输入 collection 名称" value="knowledge_base" style="padding: 5px; width: 300px;">
+        <button onclick="loadCollectionData()" style="padding: 5px 15px; margin-left: 10px;">查询数据</button>
+        <button onclick="showAddTextForm()" style="padding: 5px 15px; margin-left: 10px;">添加文本</button>
+        <button onclick="showSearchForm()" style="padding: 5px 15px; margin-left: 10px;">相似度搜索</button>
+    </div>
+
+    <!-- Collection 数据展示 -->
+    <div id="collection-info" style="margin: 20px 0; padding: 15px; background: #f5f5f5; border-radius: 5px; display: none;">
+        <h3>Collection 信息</h3>
+        <p><strong>名称:</strong> <span id="coll-name"></span></p>
+        <p><strong>文档数量:</strong> <span id="coll-count"></span></p>
+        <div id="documents-list" style="margin-top: 20px;"></div>
+    </div>
+
+    <!-- 添加文本表单 -->
+    <div id="add-text-form" style="margin: 20px 0; padding: 15px; background: #e8f5e9; border-radius: 5px; display: none;">
+        <h3>添加文本到向量数据库</h3>
+        <div style="margin: 10px 0;">
+            <label>Collection 名称:</label><br>
+            <input type="text" id="add-collection" value="knowledge_base" style="width: 100%; padding: 5px;">
+        </div>
+        <div style="margin: 10px 0;">
+            <label>文本内容:</label><br>
+            <textarea id="add-text" rows="6" style="width: 100%; padding: 5px;" placeholder="输入要添加的文本..."></textarea>
+        </div>
+        <div style="margin: 10px 0;">
+            <label>元数据 (JSON 格式,可选):</label><br>
+            <input type="text" id="add-metadata" placeholder='{"title": "示例", "category": "测试"}' style="width: 100%; padding: 5px;">
+        </div>
+        <button onclick="addText()" style="padding: 8px 20px; margin-top: 10px;">提交</button>
+        <button onclick="hideAddTextForm()" style="padding: 8px 20px; margin-left: 10px;">取消</button>
+        <div id="add-result" style="margin-top: 10px;"></div>
+    </div>
+
+    <!-- 相似度搜索表单 -->
+    <div id="search-form" style="margin: 20px 0; padding: 15px; background: #fff3e0; border-radius: 5px; display: none;">
+        <h3>相似度搜索</h3>
+        <div style="margin: 10px 0;">
+            <label>Collection 名称:</label><br>
+            <input type="text" id="search-collection" value="knowledge_base" style="width: 100%; padding: 5px;">
+        </div>
+        <div style="margin: 10px 0;">
+            <label>查询文本:</label><br>
+            <input type="text" id="search-query" placeholder="输入查询内容..." style="width: 100%; padding: 5px;">
+        </div>
+        <div style="margin: 10px 0;">
+            <label>返回结果数量:</label><br>
+            <input type="number" id="search-limit" value="5" min="1" max="20" style="width: 100px; padding: 5px;">
+        </div>
+        <button onclick="searchSimilarity()" style="padding: 8px 20px; margin-top: 10px;">搜索</button>
+        <button onclick="hideSearchForm()" style="padding: 8px 20px; margin-left: 10px;">取消</button>
+        <div id="search-results" style="margin-top: 20px;"></div>
+    </div>
+</div>
+
+<script>
+// 加载 Collection 数据
+function loadCollectionData() {
+    const collectionName = document.getElementById('collection-input').value;
+    const url = `/app/aiagent/knowledge/collection-data/?collection_name=${encodeURIComponent(collectionName)}`;
+    
+    fetch(url)
+        .then(response => response.json())
+        .then(data => {
+            if (data.code === 200) {
+                displayCollectionInfo(data.data);
+            } else {
+                alert('获取数据失败: ' + data.message);
+            }
+        })
+        .catch(error => {
+            alert('请求失败: ' + error);
+        });
+}
+
+// 显示 Collection 信息
+function displayCollectionInfo(data) {
+    // 隐藏其他表单
+    document.getElementById('add-text-form').style.display = 'none';
+    document.getElementById('search-form').style.display = 'none';
+    
+    document.getElementById('coll-name').textContent = data.collection_name;
+    document.getElementById('coll-count').textContent = data.count;
+    
+    const docsList = document.getElementById('documents-list');
+    if (data.count > 0) {
+        let html = '<h4>文档列表 (前10条):</h4>';
+        const maxDocs = Math.min(10, data.ids.length);
+        for (let i = 0; i < maxDocs; i++) {
+            html += `
+                <div style="margin: 10px 0; padding: 10px; background: white; border-left: 3px solid #4CAF50;">
+                    <p><strong>ID:</strong> ${data.ids[i]}</p>
+                    <p><strong>内容:</strong> ${data.documents[i].substring(0, 200)}...</p>
+                    <p><strong>元数据:</strong> ${JSON.stringify(data.metadatas[i])}</p>
+                </div>
+            `;
+        }
+        docsList.innerHTML = html;
+    } else {
+        docsList.innerHTML = '<p style="color: #999;">暂无数据</p>';
+    }
+    
+    document.getElementById('collection-info').style.display = 'block';
+}
+
+// 显示添加文本表单
+function showAddTextForm() {
+    document.getElementById('add-text-form').style.display = 'block';
+    document.getElementById('search-form').style.display = 'none';
+    document.getElementById('collection-info').style.display = 'none';  // 隐藏查询结果
+}
+
+function hideAddTextForm() {
+    document.getElementById('add-text-form').style.display = 'none';
+    document.getElementById('add-result').innerHTML = '';
+}
+
+// 添加文本
+function addText() {
+    const collection = document.getElementById('add-collection').value;
+    const text = document.getElementById('add-text').value;
+    const metadataStr = document.getElementById('add-metadata').value;
+    
+    if (!text) {
+        alert('请输入文本内容');
+        return;
+    }
+    
+    let metadata = {};
+    if (metadataStr) {
+        try {
+            metadata = JSON.parse(metadataStr);
+        } catch (e) {
+            alert('元数据格式错误,请使用正确的 JSON 格式');
+            return;
+        }
+    }
+    
+    const url = '/app/aiagent/knowledge/add-text/';
+    fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            collection_name: collection,
+            text: text,
+            metadata: metadata
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        const resultDiv = document.getElementById('add-result');
+        if (data.code === 200) {
+            resultDiv.innerHTML = `<div style="color: green; padding: 10px; background: #d4edda; border-radius: 5px;">
+                ✓ ${data.message}<br>
+                分块数量: ${data.data.chunk_count}
+            </div>`;
+            document.getElementById('add-text').value = '';
+            document.getElementById('add-metadata').value = '';
+        } else {
+            resultDiv.innerHTML = `<div style="color: red; padding: 10px; background: #f8d7da; border-radius: 5px;">
+                ✗ ${data.message}
+            </div>`;
+        }
+    })
+    .catch(error => {
+        document.getElementById('add-result').innerHTML = `<div style="color: red;">请求失败: ${error}</div>`;
+    });
+}
+
+// 显示搜索表单
+function showSearchForm() {
+    document.getElementById('search-form').style.display = 'block';
+    document.getElementById('add-text-form').style.display = 'none';
+    document.getElementById('collection-info').style.display = 'none';  // 隐藏查询结果
+}
+
+function hideSearchForm() {
+    document.getElementById('search-form').style.display = 'none';
+    document.getElementById('search-results').innerHTML = '';
+}
+
+// 相似度搜索
+function searchSimilarity() {
+    const collection = document.getElementById('search-collection').value;
+    const query = document.getElementById('search-query').value;
+    const nResults = parseInt(document.getElementById('search-limit').value);
+    
+    if (!query) {
+        alert('请输入查询内容');
+        return;
+    }
+    
+    const url = '/app/aiagent/knowledge/similarity-search/';
+    fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            collection_name: collection,
+            query: query,
+            n_results: nResults
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        const resultsDiv = document.getElementById('search-results');
+        if (data.code === 200 && data.data.count > 0) {
+            let html = `<h4>找到 ${data.data.count} 个相关结果:</h4>`;
+            data.data.results.forEach((item, index) => {
+                html += `
+                    <div style="margin: 10px 0; padding: 15px; background: white; border-left: 3px solid #2196F3;">
+                        <p><strong>结果 ${index + 1} - 相似度: ${(item.similarity * 100).toFixed(2)}%</strong></p>
+                        <p><strong>内容:</strong> ${item.document}</p>
+                        <p><strong>元数据:</strong> ${JSON.stringify(item.metadata)}</p>
+                        <p style="color: #666; font-size: 12px;">距离: ${item.distance.toFixed(4)}</p>
+                    </div>
+                `;
+            });
+            resultsDiv.innerHTML = html;
+        } else {
+            resultsDiv.innerHTML = '<p style="color: #999;">未找到相关结果</p>';
+        }
+    })
+    .catch(error => {
+        document.getElementById('search-results').innerHTML = `<div style="color: red;">搜索失败: ${error}</div>`;
+    });
+}
+</script>
+{% endblock %}
