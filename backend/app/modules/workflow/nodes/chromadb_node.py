@@ -60,8 +60,14 @@ def get_memory_node(state: WorkflowState) -> Dict[str, Any]:
             for msg in recent_messages:
                 role = msg.get("role", "unknown")
                 content = msg.get("content", "")
+                intent = msg.get("intent", "")  # 获取意图
                 role_name = "用户" if role == "user" else "安然" if role == "assistant" else role
-                history_lines.append(f"{role_name}：{content}")
+                
+                # 如果有意图，拼接到消息后面
+                if intent:
+                    history_lines.append(f"{role_name}：{content}（意图是{intent}）")
+                else:
+                    history_lines.append(f"{role_name}：{content}")
             history_text = "\n".join(history_lines)
             logger.info(f"✅ 最近消息获取完成（当前会话），共 {len(recent_messages)} 条")
         
@@ -92,9 +98,14 @@ def get_memory_node(state: WorkflowState) -> Dict[str, Any]:
                         role = memory.get("role", "unknown")
                         content = memory.get("content", "")
                         distance = memory.get("distance", 1.0)
+                        intent = memory.get("intent", "")  # 获取意图
                         role_name = "用户" if role == "user" else "安然" if role == "assistant" else role
-                        # 添加相似度信息
-                        similar_lines.append(f"{role_name}：{content} (相似度: {1-distance:.2f})")
+                        
+                        # 如果有意图，拼接到消息后面
+                        if intent:
+                            similar_lines.append(f"{role_name}：{content}（意图是{intent}，相似度: {1-distance:.2f}）")
+                        else:
+                            similar_lines.append(f"{role_name}：{content} (相似度: {1-distance:.2f})")
                     
                     similar_messages_text = "\n".join(similar_lines)
                     similar_count = len(filtered_memories)
@@ -126,7 +137,8 @@ def save_memory_node(state: WorkflowState) -> Dict[str, Any]:
     职责：
     1. 从 state 中提取 user_id、session_id、user_input 和 llm_response
     2. 将用户输入和 LLM 回答分别保存到 ChromaDB
-    3. 更新 state 中的保存状态
+    3. 对于 assistant 消息，添加意图信息到元数据
+    4. 更新 state 中的保存状态
     
     Args:
         state: 工作流状态，需要包含：
@@ -134,6 +146,9 @@ def save_memory_node(state: WorkflowState) -> Dict[str, Any]:
             - session_id: 会话ID
             - user_input: 用户输入
             - llm_response: LLM 回答
+            - intent: 意图（可选）
+            - intent_confidence: 意图置信度（可选）
+            - intents: 所有意图列表（可选）
             
     Returns:
         更新后的状态字典，包含：
@@ -146,6 +161,11 @@ def save_memory_node(state: WorkflowState) -> Dict[str, Any]:
         session_id = state.get("session_id")
         user_input = state.get("user_input", "")
         llm_response = state.get("llm_response", "")
+        
+        # 获取意图信息
+        intent = state.get("intent", "")
+        intent_confidence = state.get("intent_confidence", 0.0)
+        intents = state.get("intents", [])
         
         if not user_id or not session_id:
             return {
@@ -174,7 +194,10 @@ def save_memory_node(state: WorkflowState) -> Dict[str, Any]:
                 session_id=session_id,
                 role="user",
                 content=user_input,
-                timestamp=user_timestamp  # 使用稍早的时间戳
+                timestamp=user_timestamp,  # 使用稍早的时间戳
+                intent=intent if intent else None,  # 添加意图
+                intent_confidence=intent_confidence if intent_confidence > 0 else None,  # 添加意图置信度
+                intents=intents if intents else None  # 添加所有意图列表
             )
             saved_ids.append(user_msg_id)
         
@@ -187,11 +210,16 @@ def save_memory_node(state: WorkflowState) -> Dict[str, Any]:
                 session_id=session_id,
                 role="assistant",
                 content=llm_response,
-                timestamp=assistant_timestamp  # 使用基准时间戳
+                timestamp=assistant_timestamp,  # 使用基准时间戳
+                intent=intent if intent else None,  # 添加意图
+                intent_confidence=intent_confidence if intent_confidence > 0 else None,  # 添加意图置信度
+                intents=intents if intents else None  # 添加所有意图列表
             )
             saved_ids.append(assistant_msg_id)
         
         logger.info(f"✅ 记忆保存完成，共保存 {len(saved_ids)} 条消息")
+        if intent:
+            logger.info(f"🎯 已将意图信息保存到 assistant 消息: {intent} (置信度: {intent_confidence:.2f})")
         
         return {
             "memory_saved": True,

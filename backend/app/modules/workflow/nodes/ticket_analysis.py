@@ -21,6 +21,9 @@ async def async_ticket_analysis_node(state: WorkflowState):
             - user_input: 用户输入
             - llm_response: LLM 回答
             - history_text: 对话历史
+            - intent: 主意图（意图识别结果）
+            - intent_confidence: 意图置信度
+            - intents: 所有意图列表
     
     Returns:
         更新的状态，包含：
@@ -32,15 +35,38 @@ async def async_ticket_analysis_node(state: WorkflowState):
         llm_response = state.get("llm_response", "")
         history_text = state.get("history_text", "")
         
+        # 获取意图识别结果
+        intent = state.get("intent", "")
+        intent_confidence = state.get("intent_confidence", 0.0)
+        intents = state.get("intents", [])
+        
+        # 格式化意图信息（供 Prompt 使用）
+        intent_info = ""
+        if intent:
+            if len(intents) > 1:
+                # 混合意图
+                intent_parts = []
+                for intent_item in intents:
+                    intent_name = intent_item.get("intent", "")
+                    confidence = intent_item.get("confidence", 0.0)
+                    intent_parts.append(f"{intent_name}({confidence:.0%})")
+                intent_info = f"当前意图：{' + '.join(intent_parts)}"
+            else:
+                # 单一意图
+                intent_info = f"当前意图：{intent}({intent_confidence:.0%})"
+        else:
+            intent_info = "当前意图：未识别"
+        
         # 构建分析 Prompt
         ticket_prompt_template = get_ticket_analysis_prompt()
         analysis_prompt = ticket_prompt_template.format(
             history=history_text if history_text else "（这是新对话的开始）",
             user_input=user_input,
-            llm_response=llm_response
+            llm_response=llm_response,
+            intent_info=intent_info  # 新增：意图信息
         )
         
-        logger.info("🔍 开始分析是否需要创建工单...")
+        logger.info(f"🔍 开始分析是否需要创建工单... (意图: {intent})")
         
         # 调用 LLM 分析（使用同步调用，完全不产生流式事件）
         llm = llm_core.create_llm(

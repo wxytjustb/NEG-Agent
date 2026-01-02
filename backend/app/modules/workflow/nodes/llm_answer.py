@@ -12,15 +12,17 @@ logger = logging.getLogger(__name__)
 
 @observe(name="llm_answer_node", tags=["node", "llm", "generation"])
 async def async_llm_stream_answer_node(state: WorkflowState, config: Optional[RunnableConfig] = None):
-    """LLM 异步流式回答节点 - 供 astream_events 使用"""
+    """显LLM 异步流式回答节点 - 供 astream_events 使用
+    
+    注意：此节点在意图识别之前执行，不使用意图信息生成回答
+    """
     try:
         user_input = state.get("user_input", "")
-        intent = state.get("intent", "日常对话")
-        intents = state.get("intents", [])  # 新增：获取所有意图
+        # ❗ 此时意图识别还未执行，不使用意图信息
         company = state.get("company", "未知")
         age = state.get("age", "未知")
         gender = state.get("gender", "未知")
-        history_text = state.get("history_text", "")  # 最近5条历史消息
+        history_text = state.get("history_text", "")  # 最近10条历史消息
         similar_messages = state.get("similar_messages", "")  # 相似度较高的消息
         
         full_prompt = build_full_prompt(
@@ -30,8 +32,8 @@ async def async_llm_stream_answer_node(state: WorkflowState, config: Optional[Ru
             company=company,
             age=age,
             gender=gender,
-            current_intent=intent,
-            intents=intents  # 新增：传入所有意图
+            current_intent="",  # 意图识别还未执行，传空值
+            intents=[]  # 空列表
         )
         
         llm = llm_core.create_llm(

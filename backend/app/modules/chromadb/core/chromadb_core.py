@@ -66,7 +66,10 @@ class ChromaDBCore:
         content: str,
         message_id: Optional[str] = None,
         timestamp: Optional[str] = None,
-        check_duplicate: bool = True  # 新增：是否检查重复
+        check_duplicate: bool = True,  # 是否检查重复
+        intent: Optional[str] = None,  # 新增：意图
+        intent_confidence: Optional[float] = None,  # 新增：意图置信度
+        intents: Optional[List[Dict]] = None  # 新增：所有意图列表
     ) -> str:
         """
         添加消息到短期记忆
@@ -79,6 +82,9 @@ class ChromaDBCore:
             message_id: 消息 ID（可选，自动生成）
             timestamp: 时间戳（可选，自动生成）
             check_duplicate: 是否检查重复（默认检查）
+            intent: 意图（对 user 和 assistant 消息都有效）
+            intent_confidence: 意图置信度（对 user 和 assistant 消息都有效）
+            intents: 所有意图列表（对 user 和 assistant 消息都有效）
             
         Returns:
             str: 消息 ID
@@ -128,6 +134,16 @@ class ChromaDBCore:
                 "role": role,
                 "timestamp": timestamp
             }
+            
+            # 添加意图信息（对 user 和 assistant 消息都有效）
+            if intent:
+                metadata["intent"] = intent
+            if intent_confidence is not None:
+                metadata["intent_confidence"] = str(intent_confidence)  # 转为字符串
+            if intents:
+                # 将意图列表序列化为 JSON 字符串
+                import json
+                metadata["intents"] = json.dumps(intents, ensure_ascii=False)
             
             # 添加到集合（ChromaDB 会自动生成 embedding）
             collection.add(
@@ -206,7 +222,9 @@ class ChromaDBCore:
                             "role": metadata.get("role"),
                             "timestamp": metadata.get("timestamp"),
                             "user_id": metadata.get("user_id"),
-                            "session_id": metadata.get("session_id")
+                            "session_id": metadata.get("session_id"),
+                            "intent": metadata.get("intent"),  # 新增：意图
+                            "intent_confidence": metadata.get("intent_confidence")  # 新增：意图置信度
                         })
                     
                     formatted_results.append(result_item)
@@ -269,7 +287,9 @@ class ChromaDBCore:
                         "role": metadata.get("role"),
                         "timestamp": metadata.get("timestamp"),
                         "user_id": metadata.get("user_id"),
-                        "session_id": metadata.get("session_id")
+                        "session_id": metadata.get("session_id"),
+                        "intent": metadata.get("intent"),  # 新增：意图
+                        "intent_confidence": metadata.get("intent_confidence")  # 新增：意图置信度
                     })
             
             # 按时间降序排列（最新的在前）
