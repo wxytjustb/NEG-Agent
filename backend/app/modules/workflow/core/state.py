@@ -21,17 +21,21 @@ class WorkflowState(TypedDict, total=False):
     gender: str  # 用户性别
     
     # 意图识别结果
-    intent: str  # 识别出的意图（法律咨询/情感倾诉/日常对话）
-    intent_confidence: float  # 意图识别的置信度
+    intent: str  # 主意图（置信度最高的）
+    intent_confidence: float  # 主意图的置信度
     intent_scores: Dict[str, float]  # 所有意图的得分
+    intents: List[Dict[str, Any]]  # 所有检测到的意图列表（包括混合意图）
     
     # 安全检测结果
     is_safe: bool  # 输入是否安全
     safety_response: Optional[str]  # 如果不安全，这里是预设的回应
     
     # 对话历史
-    history_text: str  # 格式化的对话历史文本
+    history_text: str  # 最近5条对话历史文本
     history_messages: List[Dict[str, str]]  # 原始消息列表
+    similar_messages: str  # 相似度较高的消息文本
+    recent_message_count: int  # 最近消息数量
+    similar_message_count: int  # 相似消息数量
     
     # 记忆检索
     long_term_memory: str  # 从向量数据库检索的长期记忆

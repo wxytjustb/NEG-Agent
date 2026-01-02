@@ -145,8 +145,8 @@ class ChromaDBCore:
     def search_memory(
         self,
         user_id: str,
-        session_id: str,
-        query_text: str,
+        session_id: Optional[str] = None,  # 修改为可选
+        query_text: str = "",
         n_results: int = 5,
         include_metadata: bool = True
     ) -> List[Dict]:
@@ -155,34 +155,31 @@ class ChromaDBCore:
         
         Args:
             user_id: 用户 ID
-            session_id: 会话 ID
+            session_id: 会话 ID（可选，None 表示搜索用户所有会话的记忆）
             query_text: 查询文本
             n_results: 返回结果数量
             include_metadata: 是否包含元数据
             
         Returns:
-            List[Dict]: 相似的消息列表，格式：
-                [
-                    {
-                        "id": "消息ID",
-                        "content": "消息内容",
-                        "role": "user/assistant",
-                        "timestamp": "2024-01-01T00:00:00",
-                        "distance": 0.123  # 相似度距离（越小越相似）
-                    },
-                    ...
-                ]
+            List[Dict]: 相似的消息列表
         """
         try:
             collection = self._get_or_create_collection()
             
-            # 构建过滤条件（只查询指定用户和会话的记忆）
-            where_filter = {
-                "$and": [
-                    {"user_id": {"$eq": user_id}},
-                    {"session_id": {"$eq": session_id}}
-                ]
-            }
+            # 构建过滤条件
+            if session_id:
+                # 指定会话
+                where_filter = {
+                    "$and": [
+                        {"user_id": {"$eq": user_id}},
+                        {"session_id": {"$eq": session_id}}
+                    ]
+                }
+            else:
+                # 不限制会话，只按 user_id 过滤
+                where_filter = {
+                    "user_id": {"$eq": user_id}
+                }
             
             # 执行查询
             results = collection.query(
@@ -223,15 +220,15 @@ class ChromaDBCore:
     def get_all_messages(
         self,
         user_id: str,
-        session_id: str,
+        session_id: Optional[str] = None,  # 修改为可选
         limit: Optional[int] = None
     ) -> List[Dict]:
         """
-        获取指定会话的所有消息（按时间顺序）
+        获取指定会话的所有消息（按时间排序）
         
         Args:
             user_id: 用户 ID
-            session_id: 会话 ID
+            session_id: 会话 ID（可选，None 表示获取用户所有会话的消息）
             limit: 限制返回数量（None 表示全部）
             
         Returns:
@@ -241,12 +238,19 @@ class ChromaDBCore:
             collection = self._get_or_create_collection()
             
             # 构建过滤条件
-            where_filter = {
-                "$and": [
-                    {"user_id": {"$eq": user_id}},
-                    {"session_id": {"$eq": session_id}}
-                ]
-            }
+            if session_id:
+                # 指定会话
+                where_filter = {
+                    "$and": [
+                        {"user_id": {"$eq": user_id}},
+                        {"session_id": {"$eq": session_id}}
+                    ]
+                }
+            else:
+                # 不限制会话，只按 user_id 过滤
+                where_filter = {
+                    "user_id": {"$eq": user_id}
+                }
             
             # 获取所有匹配的记录
             results = collection.get(
@@ -268,12 +272,15 @@ class ChromaDBCore:
                         "session_id": metadata.get("session_id")
                     })
             
-            # 按时间排序
-            formatted_results.sort(key=lambda x: x.get("timestamp", ""))
+            # 按时间降序排列（最新的在前）
+            formatted_results.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
             
-            # 限制数量
+            # 限制数量（取最新N条）
             if limit:
                 formatted_results = formatted_results[:limit]
+            
+            # 反转为升序（最旧在前），确保对话按时间流正确排列
+            formatted_results.reverse()
             
             return formatted_results
             

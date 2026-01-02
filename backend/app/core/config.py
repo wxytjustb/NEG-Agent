@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     # CORS 配置
     CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
     
-    # LLM API 配置 (DeepSeek 或其他 OpenAI 兼容接口)
+    # LLM API 配置 (DeepSeek)
     LLM_API_KEY: Optional[str] = None
     LLM_API_BASE_URL: Optional[str] = None
     LLM_MODEL: str = "gpt-3.5-turbo"
@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     REDIS_TTL: int = 300  # 5 minutes
     
     # Session Token Configuration
-    SESSION_TOKEN_EXPIRE_MINUTES: int = 30  # 30 minutes
+    SESSION_TOKEN_EXPIRE_MINUTES: int = 60  # Session Token 过期时间（分钟）
     SESSION_REDIS_PREFIX: str = "session:"  # Redis key prefix for sessions
     USER_SESSION_PREFIX: str = "user_session:"  # Redis key prefix for user-to-session mapping
     
@@ -70,19 +70,16 @@ class Settings(BaseSettings):
     # ChromaDB 配置（向量数据库）
     CHROMA_HOST: str = "localhost"  # ChromaDB 服务器地址
     CHROMA_PORT: int = 8001  # ChromaDB 服务器端口（对应 docker-compose 中的主机端口）
-    CHROMA_USE_HTTP: str = "true"  # 是否使用 HTTP 客户端
-    CHROMA_PERSIST_DIRECTORY: str = "./chroma_data"  # 本地持久化目录（仅本地模式）
-    CHROMADB_COLLECTION: str = "short_term_memory"  # 短期记忆集合名称
+    CHROMA_USE_HTTP: str = "True"  # 是否使用 HTTP 客户端（True=远程，False=本地）
+    CHROMADB_COLLECTION: str = "memory"  # 对话记忆集合名称
     CHROMADB_DISTANCE_METRIC: str = "cosine"  # 距离度量方式: cosine/l2/ip
+    
+    # 历史记忆配置
+    HISTORY_MESSAGE_LIMIT: int = 10  # 获取最近N条历史消息，默认10条
 
-    # LangGraph 配置（工作流编排）
-    LANGGRAPH_ENABLED: bool = True
-    LANGGRAPH_MAX_ITERATIONS: int = 10  # 最大迭代次数
-    LANGGRAPH_TIMEOUT: int = 300  # 超时时间（秒）
-    LANGGRAPH_TRACING_ENABLED: bool = True  # 是否启用追踪
-    LANGGRAPH_VERBOSE: bool = True  # 是否输出详细日志
-    LANGGRAPH_CHECKPOINT_ENABLED: bool = False  # 是否启用检查点
-    LANGGRAPH_CHECKPOINT_BACKEND: str = "memory"  # memory/redis/sqlite
+    # 意图识别配置（Intent Recognition）
+    INTENT_LABELS: str = "日常对话,法律咨询,情感倾诉"  # 意图标签（逗号分隔）
+    INTENT_MIN_CONFIDENCE: float = 0.3  # 意图置信度阈值（低于此值归为日常对话）
 
     
     class Config:

@@ -16,18 +16,22 @@ async def async_llm_stream_answer_node(state: WorkflowState, config: Optional[Ru
     try:
         user_input = state.get("user_input", "")
         intent = state.get("intent", "日常对话")
+        intents = state.get("intents", [])  # 新增：获取所有意图
         company = state.get("company", "未知")
         age = state.get("age", "未知")
         gender = state.get("gender", "未知")
-        history_text = state.get("history_text", "")
+        history_text = state.get("history_text", "")  # 最近5条历史消息
+        similar_messages = state.get("similar_messages", "")  # 相似度较高的消息
         
         full_prompt = build_full_prompt(
             user_input=user_input,
             history_text=history_text,
+            similar_messages=similar_messages,
             company=company,
             age=age,
             gender=gender,
-            current_intent=intent
+            current_intent=intent,
+            intents=intents  # 新增：传入所有意图
         )
         
         llm = llm_core.create_llm(

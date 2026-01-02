@@ -23,16 +23,19 @@ def intent_recognition_node(state: WorkflowState) -> Dict[str, Any]:
         user_input = state.get("user_input", "")
         logger.info(f"用户输入: {user_input[:50]}...")
         
-        # 调用意图识别
-        intent, confidence, all_scores = detect_intent(user_input)
+        # 调用意图识别（现在返回 4 个值）
+        intent, confidence, all_scores, intents = detect_intent(user_input)
         
         logger.info(f"✅ 意图识别完成: {intent} (置信度: {confidence:.2f})")
+        if len(intents) > 1:
+            logger.info(f"🔀 检测到混合意图: {intents}")
         
         # 返回更新的状态
         return {
             "intent": intent,
             "intent_confidence": confidence,
-            "intent_scores": all_scores
+            "intent_scores": all_scores,
+            "intents": intents  # 新增：所有意图列表
         }
         
     except Exception as e:
@@ -42,6 +45,7 @@ def intent_recognition_node(state: WorkflowState) -> Dict[str, Any]:
             "intent": "日常对话",
             "intent_confidence": 0.0,
             "intent_scores": {},
+            "intents": [],
             "error": error_msg
         }
 
@@ -67,9 +71,14 @@ def create_chat_workflow():
     builder.set_entry_point("user_info")  # 从用户信息获取开始
     
     # 4. 添加边（连接节点）
-    builder.add_edge("user_info", "intent_recognition")      # 用户信息 → 意图识别
-    builder.add_edge("intent_recognition", "get_memory")     # 意图识别 → 获取记忆
+    # 第一步：用户信息 → 并行执行意图识别和获取记忆
+    builder.add_edge("user_info", "intent_recognition")     # 用户信息 → 意图识别
+    builder.add_edge("user_info", "get_memory")              # 用户信息 → 获取记忆（并行）
+    
+    # 第二步：意图识别和获取记忆都完成后 → LLM回答
+    builder.add_edge("intent_recognition", "llm_answer")    # 意图识别 → LLM回答
     builder.add_edge("get_memory", "llm_answer")             # 获取记忆 → LLM回答
+    
     builder.add_edge("llm_answer", "ticket_analysis")        # LLM回答 → 工单判断
     
     # 条件路由：工单判断 → 是否需要询问用户确认
@@ -107,7 +116,7 @@ def create_chat_workflow():
     workflow = builder.compile()
     
     logger.info("✅ 对话工作流创建完成")
-    logger.info("工作流结构: 用户信息 → 意图识别 → 获取记忆 → LLM回答 → 工单判断 → [条件] 询问用户确认 → 保存记忆 → 结束")
+    logger.info("工作流结构: 用户信息 → [并行: 意图识别 + 获取记忆] → LLM回答 → 工单判断 → [条件] 询问用户确认 → 保存记忆 → 结束")
     
     return workflow
 
