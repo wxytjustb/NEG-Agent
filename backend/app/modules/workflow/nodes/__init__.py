@@ -10,6 +10,10 @@ from app.modules.workflow.nodes.user_info import (
     user_info_node,
     async_user_info_node
 )
+from app.modules.workflow.nodes.chromadb_node import (
+    get_memory_node,
+    save_memory_node
+)
 
 __all__ = [
     # 意图识别
@@ -23,5 +27,9 @@ __all__ = [
     # 用户信息
     "fetch_user_info_from_golang",
     "user_info_node",
-    "async_user_info_node"
+    "async_user_info_node",
+    
+    # ChromaDB 记忆
+    "get_memory_node",
+    "save_memory_node"
 ]

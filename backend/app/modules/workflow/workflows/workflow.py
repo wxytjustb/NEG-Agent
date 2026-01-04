@@ -16,22 +16,19 @@ logger = logging.getLogger(__name__)
 
 @observe(name="intent_recognition_node", tags=["node", "intent"])
 def intent_recognition_node(state: WorkflowState) -> Dict[str, Any]:
-    """意图识别节点 - 分析对话全文（user_input + llm_response + history）"""
+    """意图识别节点 - 基于用户输入分析意图"""
     logger.info("========== 意图识别节点开始 ===========")
     
     try:
         user_input = state.get("user_input", "")
-        llm_response = state.get("llm_response", "")
         history_text = state.get("history_text", "")
         
         logger.info(f"用户输入: {user_input[:50]}...")
-        logger.info(f"AI回复: {llm_response[:50]}...")
         logger.info(f"历史上下文: {len(history_text)} 字符")
         
-        # 调用意图识别（现在返回 4 个值）
+        # 调用意图识别（只使用 user_input 和 history_text）
         intent, confidence, all_scores, intents = detect_intent(
             user_input=user_input,
-            llm_response=llm_response,
             history_text=history_text
         )
         
@@ -44,7 +41,7 @@ def intent_recognition_node(state: WorkflowState) -> Dict[str, Any]:
             "intent": intent,
             "intent_confidence": confidence,
             "intent_scores": all_scores,
-            "intents": intents  # 新增：所有意图列表
+            "intents": intents
         }
         
     except Exception as e:
@@ -69,22 +66,21 @@ def create_chat_workflow():
     # 2. 添加节点（按执行顺序）
     builder.add_node("user_info", async_user_info_node)           # 第1步：获取用户画像
     builder.add_node("get_memory", get_memory_node)         # 第2步：获取历史记忆
-    builder.add_node("llm_answer", async_llm_stream_answer_node)   # 第3步：LLM回答（异步流式）
-    builder.add_node("intent_recognition", intent_recognition_node) # 第4步：意图识别（分析对话全文）
+    builder.add_node("intent_recognition", intent_recognition_node) # 第3步：意图识别
+    builder.add_node("llm_answer", async_llm_stream_answer_node)   # 第4步：LLM回答（异步流式）
     builder.add_node("ticket_analysis", async_ticket_analysis_node) # 第5步：工单判断
     builder.add_node("ask_user_confirmation", async_ask_user_confirmation_node) # 第6步：询问用户确认
-    # 删除：不再需要创建工单节点，前端直接调用 Golang 接口
     builder.add_node("save_memory", save_memory_node)       # 第7步：保存记忆
     
     # 3. 设置入口节点
     builder.set_entry_point("user_info")  # 从用户信息获取开始
     
     # 4. 添加边（连接节点）
-    # 顺序流程：用户信息 → 获取记忆 → LLM对话 → 意图识别 → 工单判断
-    builder.add_edge("user_info", "get_memory")              # 用户信息 → 获取记忆
-    builder.add_edge("get_memory", "llm_answer")             # 获取记忆 → LLM对话
-    builder.add_edge("llm_answer", "intent_recognition")    # LLM对话 → 意图识别（分析对话内容）
-    builder.add_edge("intent_recognition", "ticket_analysis") # 意图识别 → 工单判断
+    # 串行流程：用户信息 → 获取记忆 → 意图识别 → LLM对话 → 工单判断
+    builder.add_edge("user_info", "get_memory")            # 用户信息 → 获取记忆
+    builder.add_edge("get_memory", "intent_recognition")   # 获取记忆 → 意图识别
+    builder.add_edge("intent_recognition", "llm_answer")   # 意图识别 → LLM对话
+    builder.add_edge("llm_answer", "ticket_analysis")      # LLM对话 → 工单判断
     
     # 条件路由：工单判断 → 是否需要询问用户确认
     def should_ask_confirmation(state: WorkflowState) -> str:
@@ -121,7 +117,7 @@ def create_chat_workflow():
     workflow = builder.compile()
     
     logger.info("✅ 对话工作流创建完成")
-    logger.info("工作流结构：用户信息 → 获取记忆 → LLM对话 → 意图识别 → 工单判断 → [条件] 确认 → 保存记忆 → 结束")
+    logger.info("工作流结构：用户信息 → 获取记忆 → 意图识别 → LLM对话 → 工单判断 → [条件] 确认 → 保存记忆 → 结束")
     
     return workflow
 

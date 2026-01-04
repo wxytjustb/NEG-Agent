@@ -16,7 +16,7 @@ def get_memory_node(state: WorkflowState) -> Dict[str, Any]:
     
     职责：
     1. 从 state 中提取 user_id、session_id 和 user_input
-    2. 获取当前会话最近N条历史消息（按时间顺序，数量由 HISTORY_MESSAGE_LIMIT 配置）
+    2. 获取当前会话最近N条历史消息（按时间顺序，数量由 HISTORY_MESSAGE_LIMIT 配置，默认6条）
     3. 基于当前用户输入检索当前会话中相似度较高的历史对话记忆（语义搜索）
     4. 分别格式化为文本并更新 state
     
@@ -28,7 +28,7 @@ def get_memory_node(state: WorkflowState) -> Dict[str, Any]:
             
     Returns:
         更新后的状态字典，包含：
-            - history_text: 当前会话最近N条历史消息文本（数量由 HISTORY_MESSAGE_LIMIT 配置）
+            - history_text: 当前会话最近N条历史消息文本（数量由 HISTORY_MESSAGE_LIMIT 配置，默认6条）
             - similar_messages: 当前会话中相似度较高的消息文本
             - recent_message_count: 最近消息数量
             - similar_message_count: 相似消息数量
@@ -47,11 +47,11 @@ def get_memory_node(state: WorkflowState) -> Dict[str, Any]:
                 "similar_message_count": 0
             }
         
-        # ========== 1. 获取最近N条历史消息（当前会话） ==========
+        # ========== 1. 获取最近6条历史消息（当前会话） ==========
         recent_messages = chromadb_core.get_all_messages(
             user_id=user_id,
             session_id=session_id,  # 只获取当前会话的历史消息
-            limit=settings.HISTORY_MESSAGE_LIMIT  # 从配置文件读取，默认10条
+            limit=settings.HISTORY_MESSAGE_LIMIT  # 从配置文件读取，默认6条
         )
         
         history_text = ""

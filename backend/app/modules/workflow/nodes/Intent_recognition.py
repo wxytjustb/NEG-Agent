@@ -35,7 +35,6 @@ def _get_deepseek_client() -> OpenAI:
 
 def detect_intent(
     user_input: str,
-    llm_response: str = "",
     history_text: str = "",
     min_confidence: Optional[float] = None  # 默认使用配置文件中的值
 ) -> Tuple[str, float, Dict[str, float], List[Dict[str, Any]]]:
@@ -43,7 +42,6 @@ def detect_intent(
     
     Args:
         user_input: 用户输入文本
-        llm_response: AI 回复内容（用于分析对话全文）
         history_text: 历史对话文本（提供上下文）
         min_confidence: 最低置信度阈值（低于此值返回 "日常对话"），默认使用配置值
         
@@ -53,13 +51,12 @@ def detect_intent(
     Example:
         >>> intent, confidence, all_scores, intents = detect_intent(
         ...     user_input="被差评了",
-        ...     llm_response="我理解你的委屈...",
         ...     history_text="用户：今天工作怎么样\n安然：..."
         ... )
         >>> print(f"主意图: {intent}, 置信度: {confidence:.2f}")
         >>> print(f"所有意图: {intents}")
         主意图: 法律咨询, 置信度: 0.90
-        所有意图: [{'intent': '法律咨询', 'confidence': 0.90}, {'intent': '情感倾诉', 'confidence': 0.75}]
+        所有意图: [{' intent': '法律咨询', 'confidence': 0.90}, {'intent': '情感倾诉', 'confidence': 0.75}]
     """
     # 使用配置文件中的默认值
     if min_confidence is None:
@@ -77,7 +74,6 @@ def detect_intent(
         from app.utils.prompt import get_intent_recognition_prompt
         system_prompt = get_intent_recognition_prompt().format(
             user_input=user_input,
-            llm_response=llm_response,
             history_text=history_text
         )
         

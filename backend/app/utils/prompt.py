@@ -320,9 +320,8 @@ INTENT_RECOGNITION_PROMPT = """你是一个专业的意图识别助手。请严�
 历史对话：
 {history_text}
 
-当前对话：
-用户：{user_input}
-安然：{llm_response}
+当前用户输入：
+{user_input}
 
 ---
 请严格按照上述规则分析，**不要过度解读，不要猜测，只看明确证据**。
