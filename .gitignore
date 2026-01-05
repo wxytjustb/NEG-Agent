@@ -365,3 +365,5 @@ front/package-lock.json
 
 
 .chroma_data
+
+ __pycache__
