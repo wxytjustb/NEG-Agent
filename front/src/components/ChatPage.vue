@@ -345,7 +345,7 @@ const handleWorkflowSend = async (userMessage: string, additionalState: any = {}
   try {
     console.log('[Workflow] 调用 /api/agent/chat 流式接口...');
     
-    const urlWithToken = `http://localhost:8000/api/agent/chat?session_token=${sessionToken.value}`;
+    const urlWithToken = `/api/agent/chat?session_token=${sessionToken.value}`;
     
     // 构建请求体，支持额外的 state 传递
     const requestBody: any = {

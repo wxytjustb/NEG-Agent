@@ -6,6 +6,12 @@ export default defineConfig({
   plugins: [vue()],
   server: {
     proxy: {
+      // 代理 Python 后端接口
+      '/api': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+        secure: false,
+      },
       // 代理 Golang 后端接口
       '/app': {
         target: 'https://app-api.roky.work',

@@ -1,5 +1,5 @@
-// 基础配置
-const BASE_URL = 'http://127.0.0.1:8000';
+// 基础配置 - 使用相对路径，通过 Vite 代理访问后端
+const BASE_URL = '';
 
 // 封装 fetch 请求
 export const request = async (url: string, options: RequestInit = {}) => {

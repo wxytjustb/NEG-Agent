@@ -80,7 +80,7 @@ export interface WorkflowChatResponse {
  */
 export async function initSession(accessToken: string): Promise<SessionResponse> {
   try {
-    const response = await fetch(`http://127.0.0.1:8000/api/agent/init?access_token=${accessToken}`, {
+    const response = await fetch(`/api/agent/init?access_token=${accessToken}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -119,7 +119,7 @@ export async function chatStream(
   onComplete?: () => void
 ): Promise<void> {
   try {
-    const response = await fetch(`http://127.0.0.1:8000/api/agent/chat?session_token=${sessionToken}`, {
+    const response = await fetch(`/api/agent/chat?session_token=${sessionToken}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -210,7 +210,7 @@ export async function chatStream(
  */
 export async function getChatHistory(sessionToken: string): Promise<HistoryResponse> {
   try {
-    const response = await fetch(`http://127.0.0.1:8000/api/agent/history?session_token=${sessionToken}`, {
+    const response = await fetch(`/api/agent/history?session_token=${sessionToken}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -243,7 +243,7 @@ export async function getSessionHistory(
   limit?: number
 ): Promise<ChromaDBHistoryResponse> {
   try {
-    const url = new URL(`http://127.0.0.1:8000/api/agent/history/${sessionId}`);
+    const url = new URL(`/api/agent/history/${sessionId}`, window.location.origin);
     url.searchParams.append('session_token', sessionToken);
     if (limit) {
       url.searchParams.append('limit', limit.toString());
@@ -289,8 +289,7 @@ export async function ping() {
  */
 export async function startNewConversation(accessToken: string): Promise<any> {
   try {
-    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
-    const response = await fetch(`${API_BASE_URL}/api/agent/new-conversation?access_token=${accessToken}`, {
+    const response = await fetch(`/api/agent/new-conversation?access_token=${accessToken}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -321,12 +320,10 @@ export async function workflowChat(
   message: string
 ): Promise<WorkflowChatResponse> {
   try {
-    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
-    
     console.log('[WorkflowChat] 发起请求:', { message });
     
     const response = await fetch(
-      `${API_BASE_URL}/api/workflow/chat?session_token=${sessionToken}`,
+      `/api/workflow/chat?session_token=${sessionToken}`,
       {
         method: 'POST',
         headers: {
