@@ -3,7 +3,8 @@ from app.modules.workflow.core.graph import WorkflowGraphBuilder
 from app.modules.workflow.core.state import WorkflowState
 from app.modules.workflow.nodes.Intent_recognition import detect_intent
 from app.modules.workflow.nodes.llm_answer import async_llm_stream_answer_node
-from app.modules.workflow.nodes.ticket_analysis import async_ticket_analysis_node, async_ask_user_confirmation_node  # 工单判断节点、用户确认节点
+# 工单功能已移除，代码保留但不在工作流中使用
+# from app.modules.workflow.nodes.ticket_analysis import async_ticket_analysis_node, async_ask_user_confirmation_node
 from app.modules.workflow.nodes.user_info import async_user_info_node  # 异步版本（支持 session 缓存）
 from app.modules.workflow.nodes.chromadb_node import get_memory_node, save_memory_node  # ChromaDB 记忆节点
 # 删除：不再需要创建工单节点，前端直接调用 Golang 接口
@@ -68,47 +69,22 @@ def create_chat_workflow():
     builder.add_node("get_memory", get_memory_node)         # 第2步：获取历史记忆
     builder.add_node("intent_recognition", intent_recognition_node) # 第3步：意图识别
     builder.add_node("llm_answer", async_llm_stream_answer_node)   # 第4步：LLM回答（异步流式）
-    builder.add_node("ticket_analysis", async_ticket_analysis_node) # 第5步：工单判断
-    builder.add_node("ask_user_confirmation", async_ask_user_confirmation_node) # 第6步：询问用户确认
-    builder.add_node("save_memory", save_memory_node)       # 第7步：保存记忆
+    builder.add_node("save_memory", save_memory_node)       # 第5步：保存记忆
+    
+    # 工单节点已移除（前端直接调用 Golang 接口）
+    # builder.add_node("ticket_analysis", async_ticket_analysis_node)
+    # builder.add_node("ask_user_confirmation", async_ask_user_confirmation_node)
     
     # 3. 设置入口节点
     builder.set_entry_point("user_info")  # 从用户信息获取开始
     
     # 4. 添加边（连接节点）
-    # 串行流程：用户信息 → 获取记忆 → 意图识别 → LLM对话 → 工单判断
+    # 简化流程：用户信息 → 获取记忆 → 意图识别 → LLM对话 → 保存记忆 → 结束
     builder.add_edge("user_info", "get_memory")            # 用户信息 → 获取记忆
     builder.add_edge("get_memory", "intent_recognition")   # 获取记忆 → 意图识别
     builder.add_edge("intent_recognition", "llm_answer")   # 意图识别 → LLM对话
-    builder.add_edge("llm_answer", "ticket_analysis")      # LLM对话 → 工单判断
-    
-    # 条件路由：工单判断 → 是否需要询问用户确认
-    def should_ask_confirmation(state: WorkflowState) -> str:
-        """判断是否需要询问用户确认"""
-        need_ticket = state.get("need_create_ticket", False)
-        
-        # 调试日志
-        logger.info(f"🔍 [should_ask_confirmation] need_create_ticket = {need_ticket}")
-        
-        if need_ticket:
-            logger.info("✅ 需要创建工单，转到确认节点")
-            return "ask_user_confirmation"
-        else:
-            logger.info("❌ 不需要创建工单，直接保存记忆")
-            return "save_memory"
-    
-    builder.add_conditional_edges(
-        "ticket_analysis",
-        should_ask_confirmation,
-        {
-            "ask_user_confirmation": "ask_user_confirmation",
-            "save_memory": "save_memory"
-        }
-    )
-    
-    # 删除：不再需要创建工单的条件路由，用户确认后直接保存记忆，前端调用 Golang 接口
-    builder.add_edge("ask_user_confirmation", "save_memory")  # 询问确认 → 保存记忆
-    builder.add_edge("save_memory", END)                      # 保存记忆 → 结束
+    builder.add_edge("llm_answer", "save_memory")          # LLM对话 → 保存记忆（直接连接，跳过工单判断）
+    builder.add_edge("save_memory", END)                    # 保存记忆 → 结束
     
     # 5. 验证图结构
     builder.validate()
@@ -117,7 +93,7 @@ def create_chat_workflow():
     workflow = builder.compile()
     
     logger.info("✅ 对话工作流创建完成")
-    logger.info("工作流结构：用户信息 → 获取记忆 → 意图识别 → LLM对话 → 工单判断 → [条件] 确认 → 保存记忆 → 结束")
+    logger.info("工作流结构：用户信息 → 获取记忆 → 意图识别 → LLM对话 → 保存记忆 → 结束")
     
     return workflow
 
@@ -246,20 +222,8 @@ async def run_chat_workflow_streaming(
 
         logger.info(f"✅ 工作流完成: 事件数={event_count}, 流式输出={has_output}")
 
-        # 在流式输出结束后，返回重要的 state 信息
-        if final_state:
-            state_info = {
-                "need_create_ticket": final_state.get("need_create_ticket", False),
-                "ticket_reason": final_state.get("ticket_reason", ""),
-                "ticket_content": final_state.get("ticket_content", ""),  # 工单内容
-                "ticket_created": final_state.get("ticket_created", False),  # 是否创建成功
-                "ticket_result": final_state.get("ticket_result", "")  # 创建结果
-            }
-            # 只有需要创建工单时才返回 state
-            if state_info["need_create_ticket"] or state_info["ticket_created"]:
-                import json
-                logger.info(f"📝 返回工单 State: {state_info}")
-                yield f"[STATE]{json.dumps(state_info, ensure_ascii=False)}"
+        # 工单功能已移除，不再返回工单相关 state
+        # 前端直接调用 Golang 接口创建工单
 
         # 兜底逻辑：仅在完全没有输出时触发
         if not has_output:
