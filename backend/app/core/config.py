@@ -81,6 +81,11 @@ class Settings(BaseSettings):
     INTENT_LABELS: str = "日常对话,法律咨询,情感倾诉"  # 意图标签（逗号分隔）
     INTENT_MIN_CONFIDENCE: float = 0.3  # 意图置信度阈值（低于此值归为日常对话）
 
+    # ModelScope 配置（用于意图识别）
+    MODELSCOPE_API_BASE_URL: str = "https://ms-ens-9c1db2c8-2e34.api-inference.modelscope.cn/v1"
+    MODELSCOPE_API_KEY: Optional[str] = None  # ModelScope Token
+    MODELSCOPE_MODEL: str = "Qwen/Qwen2.5-1.5B-Instruct"  # ModelScope 模型 ID
+
     
     class Config:
         env_file = ".env"
