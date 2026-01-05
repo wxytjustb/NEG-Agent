@@ -85,7 +85,8 @@ def detect_intent(
             ],
             temperature=0.1,  # 低温度保证稳定性
             max_tokens=100,
-            stream=False  # 意图识别不需要流式输出
+            stream=False,  # 意图识别不需要流式输出
+            extra_body={"enable_thinking": False}  # Qwen3 模型要求非流式调用时禁用 thinking
         )
         
         # 解析响应
