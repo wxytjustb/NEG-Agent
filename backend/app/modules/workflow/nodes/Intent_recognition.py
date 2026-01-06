@@ -1,13 +1,35 @@
-# 意图识别模块 - 使用向量引擎 qwen3-0.6b
+# 意图识别模块 - 使用阿里云百炼大模型
 from typing import Dict, Tuple, List, Optional, Any
 from app.core.config import settings
-from app.initialize.vectorengine import get_vectorengine_client
 import logging
 import json
+from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
 INTENT_LABELS = [label.strip() for label in settings.INTENT_LABELS.split(",") if label.strip()]
+
+# 阿里云客户端（懒加载）
+_aliyun_client = None
+
+
+def _get_aliyun_client() -> OpenAI:
+    """获取阿里云客户端实例（懒加载）
+    
+    Returns:
+        OpenAI 客户端实例（兼容阿里云 API）
+    """
+    global _aliyun_client
+    
+    if _aliyun_client is None:
+        logger.info("正在初始化阿里云百炼 API 客户端...")
+        _aliyun_client = OpenAI(
+            api_key=settings.ALIYUN_API_KEY,
+            base_url=settings.ALIYUN_API_BASE_URL
+        )
+        logger.info("✅ 阿里云百炼 API 客户端初始化完成")
+    
+    return _aliyun_client
 
 
 def detect_intent(
@@ -15,7 +37,7 @@ def detect_intent(
     history_text: str = "",
     min_confidence: Optional[float] = None
 ) -> Tuple[str, float, Dict[str, float], List[Dict[str, Any]]]:
-    """检测用户输入的意图（使用向量引擎 API）
+    """检测用户输入的意图（使用阿里云百炼 API）
     
     Args:
         user_input: 用户输入文本
@@ -33,7 +55,7 @@ def detect_intent(
         return "日常对话", 0.0, {}, []
     
     try:
-        client = get_vectorengine_client()
+        client = _get_aliyun_client()
         
         from app.utils.prompt import get_intent_recognition_prompt
         system_prompt = get_intent_recognition_prompt().format(
@@ -42,24 +64,20 @@ def detect_intent(
         )
         
         response = client.chat.completions.create(
-            model=settings.VECTORENGINE_EMBEDDING_MODEL,
+            model=settings.ALIYUN_MODEL,
             messages=[{"role": "system", "content": system_prompt}],
             temperature=0.1,
-            max_tokens=100
+            max_tokens=100,
+            extra_body={"enable_thinking": False}  # qwen3 模型要求非流式调用时禁用 thinking
         )
         
-        # 兼容多种返回格式
-        if hasattr(response, 'choices'):
-            message_content = response.choices[0].message.content
-        elif isinstance(response, str):
-            message_content = response
-        else:
-            message_content = str(response)
+        # 获取响应内容
+        message_content = response.choices[0].message.content
         
-        logger.info(f"向量引擎返回内容: {message_content[:200]}...")
+        logger.info(f"阿里云百炼返回内容: {message_content[:200]}...")
         
         if message_content is None or not message_content.strip():
-            logger.warning("向量引擎返回内容为空，返回默认意图")
+            logger.warning("阿里云百炼返回内容为空，返回默认意图")
             return "日常对话", 0.0, {label: 0.0 for label in INTENT_LABELS}, []
         
         # 清理 markdown 代码块
@@ -112,7 +130,7 @@ def detect_intent(
                 })
         
         logger.info(
-            f"✅ 意图识别完成: {detected_intent} (置信度: {confidence:.2f}) | "
+            f"✅ 意图识别完成 (阿里云百炼): {detected_intent} (置信度: {confidence:.2f}) | "
             f"用户输入: {user_input[:30]}..."
         )
         
@@ -124,11 +142,11 @@ def detect_intent(
         return detected_intent, confidence, scores, valid_intents
         
     except json.JSONDecodeError as e:
-        logger.error(f"向量引擎返回格式解析失败: {str(e)}，内容: {message_content}，返回默认意图")
+        logger.error(f"阿里云百炼返回格式解析失败: {str(e)}，返回默认意图")
         return "日常对话", 0.0, {label: 0.0 for label in INTENT_LABELS}, []
     
     except Exception as e:
-        logger.error(f"向量引擎 API 调用失败: {str(e)}，返回默认意图")
+        logger.error(f"阿里云百炼 API 调用失败: {str(e)}，返回默认意图")
         return "日常对话", 0.0, {label: 0.0 for label in INTENT_LABELS}, []
 
 
@@ -142,9 +160,9 @@ def get_all_intents() -> List[str]:
 
 
 def preload_classifier():
-    logger.info("开始预加载向量引擎 qwen3-0.6b...")
+    logger.info("开始预加载阿里云百炼客户端...")
     try:
-        get_vectorengine_client()
-        logger.info("✅ qwen3-0.6b 预加载完成")
+        _get_aliyun_client()
+        logger.info("✅ 阿里云百炼客户端预加载完成")
     except Exception as e:
-        logger.warning(f"⚠️ qwen3-0.6b 预加载失败: {str(e)}")
+        logger.warning(f"⚠️ 阿里云百炼客户端预加载失败: {str(e)}")
