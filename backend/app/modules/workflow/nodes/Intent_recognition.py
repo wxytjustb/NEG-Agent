@@ -1,64 +1,30 @@
-# 意图识别模块 - 基于 DeepSeek API 调用
+# 意图识别模块 - 使用向量引擎 qwen3-0.6b
 from typing import Dict, Tuple, List, Optional, Any
 from app.core.config import settings
+from app.initialize.vectorengine import get_vectorengine_client
 import logging
 import json
-from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
-# 意图标签定义（从配置文件读取）
 INTENT_LABELS = [label.strip() for label in settings.INTENT_LABELS.split(",") if label.strip()]
-
-# DeepSeek 客户端（懒加载）
-_deepseek_client = None
-
-
-def _get_deepseek_client() -> OpenAI:
-    """获取 DeepSeek 客户端实例（懒加载）
-    
-    Returns:
-        OpenAI 客户端实例
-    """
-    global _deepseek_client
-    
-    if _deepseek_client is None:
-        logger.info("正在初始化 DeepSeek API 客户端...")
-        _deepseek_client = OpenAI(
-            api_key=settings.LLM_API_KEY,
-            base_url=settings.LLM_API_BASE_URL
-        )
-        logger.info("✅ DeepSeek API 客户端初始化完成")
-    
-    return _deepseek_client
 
 
 def detect_intent(
     user_input: str,
     history_text: str = "",
-    min_confidence: Optional[float] = None  # 默认使用配置文件中的值
+    min_confidence: Optional[float] = None
 ) -> Tuple[str, float, Dict[str, float], List[Dict[str, Any]]]:
-    """检测用户输入的意图（使用 DeepSeek API）
+    """检测用户输入的意图（使用向量引擎 API）
     
     Args:
         user_input: 用户输入文本
         history_text: 历史对话文本（提供上下文）
-        min_confidence: 最低置信度阈值（低于此值返回 "日常对话"），默认使用配置值
+        min_confidence: 最低置信度阈值，默认使用配置值
         
     Returns:
         Tuple[主意图, 主意图置信度, 所有意图得分字典, 所有意图列表]
-        
-    Example:
-        >>> intent, confidence, all_scores, intents = detect_intent(
-        ...     user_input="被差评了",
-        ...     history_text="用户：今天工作怎么样\n安然：..."
-        ... )
-        >>> print(f"主意图: {intent}, 置信度: {confidence:.2f}")
-        >>> print(f"所有意图: {intents}")
-        主意图: 法律咨询, 置信度: 0.90
-        所有意图: [{' intent': '法律咨询', 'confidence': 0.90}, {'intent': '情感倾诉', 'confidence': 0.75}]
     """
-    # 使用配置文件中的默认值
     if min_confidence is None:
         min_confidence = settings.INTENT_MIN_CONFIDENCE
     
@@ -67,10 +33,8 @@ def detect_intent(
         return "日常对话", 0.0, {}, []
     
     try:
-        # 使用 DeepSeek API 进行意图识别
-        client = _get_deepseek_client()
+        client = get_vectorengine_client()
         
-        # 从 prompt.py 中获取意图识别提示词
         from app.utils.prompt import get_intent_recognition_prompt
         system_prompt = get_intent_recognition_prompt().format(
             user_input=user_input,
@@ -78,24 +42,39 @@ def detect_intent(
         )
         
         response = client.chat.completions.create(
-            model=settings.LLM_MODEL,
-            messages=[
-                {"role": "system", "content": system_prompt}
-            ],
-            temperature=0.1,  # 低温度保证稳定性
-            max_tokens=100,
-            response_format={"type": "json_object"}  # 强制返回 JSON
+            model=settings.VECTORENGINE_EMBEDDING_MODEL,
+            messages=[{"role": "system", "content": system_prompt}],
+            temperature=0.1,
+            max_tokens=100
         )
         
-        # 解析响应
-        message_content = response.choices[0].message.content
+        # 兼容多种返回格式
+        if hasattr(response, 'choices'):
+            message_content = response.choices[0].message.content
+        elif isinstance(response, str):
+            message_content = response
+        else:
+            message_content = str(response)
+        
+        logger.info(f"向量引擎返回内容: {message_content[:200]}...")
+        
         if message_content is None or not message_content.strip():
-            logger.warning("DeepSeek 返回内容为空，返回默认意图")
+            logger.warning("向量引擎返回内容为空，返回默认意图")
             return "日常对话", 0.0, {label: 0.0 for label in INTENT_LABELS}, []
         
-        result = json.loads(message_content.strip())
+        # 清理 markdown 代码块
+        message_content = message_content.strip()
+        if message_content.startswith('```json'):
+            message_content = message_content[7:]  # 移除 ```json
+        if message_content.startswith('```'):
+            message_content = message_content[3:]  # 移除 ```
+        if message_content.endswith('```'):
+            message_content = message_content[:-3]  # 移除结尾 ```
+        message_content = message_content.strip()
         
-        # 获取 intents 数组（支持单一和混合意图）
+        result = json.loads(message_content)
+        
+        # 获取 intents 数组
         intents_list = result.get("intents", [])
         
         if not intents_list or len(intents_list) == 0:
@@ -121,7 +100,7 @@ def detect_intent(
             )
             detected_intent = "日常对话"
         
-        # 过滤有效的意图（只保留在 INTENT_LABELS 中的）
+        # 过滤有效的意图
         valid_intents = []
         for intent_item in intents_list:
             intent_name = intent_item.get("intent", "")
@@ -132,34 +111,24 @@ def detect_intent(
                     "confidence": intent_conf
                 })
         
-        # 记录所有检测到的意图（包括混合意图）
-        all_detected_intents = []
-        for intent_item in valid_intents:
-            intent_name = intent_item["intent"]
-            intent_conf = intent_item["confidence"]
-            all_detected_intents.append(f"{intent_name}({intent_conf:.2f})")
-        
         logger.info(
             f"✅ 意图识别完成: {detected_intent} (置信度: {confidence:.2f}) | "
-            f"所有意图: {', '.join(all_detected_intents)} | "
             f"用户输入: {user_input[:30]}..."
         )
         
-        # 构建得分字典（包含所有检测到的意图）
+        # 构建得分字典
         scores = {label: 0.0 for label in INTENT_LABELS}
         for intent_item in valid_intents:
-            intent_name = intent_item["intent"]
-            intent_conf = intent_item["confidence"]
-            scores[intent_name] = intent_conf
+            scores[intent_item["intent"]] = intent_item["confidence"]
         
         return detected_intent, confidence, scores, valid_intents
         
     except json.JSONDecodeError as e:
-        logger.error(f"DeepSeek 返回格式解析失败: {str(e)}，返回默认意图")
+        logger.error(f"向量引擎返回格式解析失败: {str(e)}，内容: {message_content}，返回默认意图")
         return "日常对话", 0.0, {label: 0.0 for label in INTENT_LABELS}, []
     
     except Exception as e:
-        logger.error(f"DeepSeek API 调用失败: {str(e)}，返回默认意图")
+        logger.error(f"向量引擎 API 调用失败: {str(e)}，返回默认意图")
         return "日常对话", 0.0, {label: 0.0 for label in INTENT_LABELS}, []
 
 
@@ -172,15 +141,10 @@ def get_all_intents() -> List[str]:
     return INTENT_LABELS.copy()
 
 
-# 预加载（可选，在应用启动时调用）
 def preload_classifier():
-    """预加载意图识别客户端
-    
-    建议在应用启动时调用，初始化 DeepSeek 客户端
-    """
-    logger.info("开始预加载意图识别客户端...")
+    logger.info("开始预加载向量引擎 qwen3-0.6b...")
     try:
-        _get_deepseek_client()
-        logger.info("✅ DeepSeek 客户端预加载完成")
+        get_vectorengine_client()
+        logger.info("✅ qwen3-0.6b 预加载完成")
     except Exception as e:
-        logger.warning(f"⚠️ DeepSeek 客户端预加载失败: {str(e)}，将在首次调用时初始化")
+        logger.warning(f"⚠️ qwen3-0.6b 预加载失败: {str(e)}")

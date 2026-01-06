@@ -43,18 +43,6 @@ async def lifespan(app: FastAPI):
     # 初始化 Redis
     await init_redis()
     
-    # ✅ 预加载意图识别客户端（避免首次请求延迟）
-    try:
-        print("🧠 正在预加载 DeepSeek 客户端...")
-        from app.modules.workflow.nodes.Intent_recognition import preload_classifier
-        
-        # 预加载 DeepSeek API 客户端
-        preload_classifier()
-        print("✅ DeepSeek API 客户端预加载完成")
-    except Exception as e:
-        print(f"⚠️  DeepSeek 客户端预加载失败: {e}")
-        print("⚠️  将在首次调用时初始化")
-    
     print(f"✅ 服务启动成功: http://{settings.HOST}:{settings.PORT}")
     print(f"📝 API 文档: http://{settings.HOST}:{settings.PORT}/docs")
     
