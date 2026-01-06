@@ -1,7 +1,7 @@
 from langgraph.graph import END  # type: ignore
 from app.modules.workflow.core.graph import WorkflowGraphBuilder
 from app.modules.workflow.core.state import WorkflowState
-from app.modules.workflow.nodes.Intent_recognition import detect_intent
+from app.modules.workflow.nodes.Intent_recognition_new import detect_intent
 from app.modules.workflow.nodes.llm_answer import async_llm_stream_answer_node
 # 工单功能已移除，代码保留但不在工作流中使用
 # from app.modules.workflow.nodes.ticket_analysis import async_ticket_analysis_node, async_ask_user_confirmation_node
