@@ -31,14 +31,20 @@ class WorkflowState(TypedDict, total=False):
     safety_response: Optional[str]  # 如果不安全，这里是预设的回应
     
     # 对话历史
-    history_text: str  # 最近5条对话历史文本
+    working_memory_text: str  # Working Memory 文本（Redis 中最近10轮对话）
+    working_memory_count: int  # Working Memory 消息数量
+    history_text: str  # 最近5条对话历史文本（ChromaDB，兼容旧代码）
     history_messages: List[Dict[str, str]]  # 原始消息列表
-    similar_messages: str  # 相似度较高的消息文本
+    similar_messages: str  # 相似度较高的消息文本（ChromaDB 语义检索）
     recent_message_count: int  # 最近消息数量
     similar_message_count: int  # 相似消息数量
     
     # 记忆检索
     long_term_memory: str  # 从向量数据库检索的长期记忆
+    
+    # 记忆保存
+    memory_saved: bool  # ChromaDB 记忆是否保存成功
+    working_memory_saved: bool  # Working Memory 是否保存成功
     
     # Prompt 构建
     full_prompt: str  # 构建完成的完整 Prompt

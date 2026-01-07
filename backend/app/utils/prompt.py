@@ -46,10 +46,10 @@ CONVERSATION_TEMPLATE = """{system_prompt}
 当前对话意图：{current_intent}
 
 ---
-对话历史：
-{history}
+近期对话记忆（Working Memory - 最近10轮）：
+{working_memory}
 
-相似度较高的消息：
+历史相似对话（ChromaDB - 语义检索）：
 {similar_messages}
 
 用户：{input}
@@ -346,7 +346,8 @@ def get_intent_recognition_prompt():
 
 def build_full_prompt(
     user_input, 
-    history_text="",
+    working_memory_text="",  # 新增：Working Memory 文本
+    history_text="",  # 保留兼容，但优先使用 working_memory_text
     similar_messages="",
     company="未知",
     age="未知",
@@ -359,13 +360,14 @@ def build_full_prompt(
     
     Args:
         user_input: 用户输入
-        history_text: 最近10条对话历史
-        similar_messages: 相似度较高的消息
+        working_memory_text: Working Memory 文本（Redis 中最近10轮对话）
+        history_text: 历史对话（兼容旧代码）
+        similar_messages: 相似度较高的消息（ChromaDB 语义检索）
         company: 用户公司
         age: 用户年龄
         gender: 用户性别
         current_intent: 主意图（向后兼容）
-        intents: 所有意图列表 [{"intent": "...", "confidence": ...}, ...]
+        intents: 所有意图列表 [{{"intent": "...", "confidence": ...}}, ...]
         
     Returns:
         完整的 Prompt 字符串
@@ -392,13 +394,16 @@ def build_full_prompt(
         # 兼容旧方式
         intent_display = current_intent
     
+    # 优先使用 working_memory_text，如果为空则回退到 history_text
+    memory_display = working_memory_text if working_memory_text else history_text
+    
     return template.format(
         system_prompt=ANRAN_SYSTEM_PROMPT,
         company=company,
         age=age,
         gender=gender,
         current_intent=intent_display,
-        history=history_text.strip() if history_text else "（这是新对话的开始）",
+        working_memory=memory_display.strip() if memory_display else "（这是新对话的开始）",
         similar_messages=similar_messages.strip() if similar_messages else "（暂无相关历史记忆）",
         input=user_input
     )

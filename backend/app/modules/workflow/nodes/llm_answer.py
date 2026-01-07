@@ -22,12 +22,16 @@ async def async_llm_stream_answer_node(state: WorkflowState, config: Optional[Ru
         company = state.get("company", "未知")
         age = state.get("age", "未知")
         gender = state.get("gender", "未知")
-        history_text = state.get("history_text", "")  # 最近10条历史消息
-        similar_messages = state.get("similar_messages", "")  # 相似度较高的消息
+        
+        # 获取两种记忆源
+        working_memory_text = state.get("working_memory_text", "")  # Working Memory（Redis 10轮对话）
+        history_text = state.get("history_text", "")  # ChromaDB 历史消息（兼容）
+        similar_messages = state.get("similar_messages", "")  # ChromaDB 相似度检索
         
         full_prompt = build_full_prompt(
             user_input=user_input,
-            history_text=history_text,
+            working_memory_text=working_memory_text,  # 优先使用 Working Memory
+            history_text=history_text,  # 兼容旧代码
             similar_messages=similar_messages,
             company=company,
             age=age,
