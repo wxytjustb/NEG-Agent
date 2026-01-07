@@ -136,7 +136,7 @@ def save_memory_node(state: WorkflowState) -> Dict[str, Any]:
     
     职责：
     1. 从 state 中提取 user_id、session_id、user_input 和 llm_response
-    2. 将用户输入和 LLM 回答分别保存到 ChromaDB
+    2. 将用户输入和 LLM 回答分别保存到 ChromaDB（用于相似度检索）
     3. 对于 assistant 消息，添加意图信息到元数据
     4. 更新 state 中的保存状态
     
@@ -194,10 +194,10 @@ def save_memory_node(state: WorkflowState) -> Dict[str, Any]:
                 session_id=session_id,
                 role="user",
                 content=user_input,
-                timestamp=user_timestamp,  # 使用稍早的时间戳
-                intent=intent if intent else None,  # 添加意图
-                intent_confidence=intent_confidence if intent_confidence > 0 else None,  # 添加意图置信度
-                intents=intents if intents else None  # 添加所有意图列表
+                timestamp=user_timestamp,
+                intent=intent if intent else None,
+                intent_confidence=intent_confidence if intent_confidence > 0 else None,
+                intents=intents if intents else None
             )
             saved_ids.append(user_msg_id)
         
@@ -210,16 +210,16 @@ def save_memory_node(state: WorkflowState) -> Dict[str, Any]:
                 session_id=session_id,
                 role="assistant",
                 content=llm_response,
-                timestamp=assistant_timestamp,  # 使用基准时间戳
-                intent=intent if intent else None,  # 添加意图
-                intent_confidence=intent_confidence if intent_confidence > 0 else None,  # 添加意图置信度
-                intents=intents if intents else None  # 添加所有意图列表
+                timestamp=assistant_timestamp,
+                intent=intent if intent else None,
+                intent_confidence=intent_confidence if intent_confidence > 0 else None,
+                intents=intents if intents else None
             )
             saved_ids.append(assistant_msg_id)
         
-        logger.info(f"✅ 记忆保存完成，共保存 {len(saved_ids)} 条消息")
+        logger.info(f"✅ ChromaDB 记忆保存完成，共保存 {len(saved_ids)} 条消息")
         if intent:
-            logger.info(f"🎯 已将意图信息保存到 assistant 消息: {intent} (置信度: {intent_confidence:.2f})")
+            logger.info(f"🎯 已将意图信息保存: {intent} (置信度: {intent_confidence:.2f})")
         
         return {
             "memory_saved": True,

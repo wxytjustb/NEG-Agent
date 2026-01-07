@@ -7,6 +7,7 @@ from app.modules.workflow.nodes.llm_answer import async_llm_stream_answer_node
 # from app.modules.workflow.nodes.ticket_analysis import async_ticket_analysis_node, async_ask_user_confirmation_node
 from app.modules.workflow.nodes.user_info import async_user_info_node  # 异步版本（支持 session 缓存）
 from app.modules.workflow.nodes.chromadb_node import get_memory_node, save_memory_node  # ChromaDB 记忆节点
+from app.modules.workflow.nodes.database_node import save_database_node  # MySQL 数据库节点
 from app.modules.workflow.nodes.working_memory import working_memory  # Working Memory 短期记忆节点
 # from app.utils.greeting import check_and_respond_greeting, stream_greeting_response  # 问候语检测和回复（暂时禁用）
 # 删除：不再需要创建工单节点，前端直接调用 Golang 接口
@@ -63,12 +64,12 @@ def intent_recognition_node(state: WorkflowState) -> Dict[str, Any]:
 async def get_working_memory_node(state: WorkflowState) -> Dict[str, Any]:
     """获取 Working Memory 节点 - 从 Redis 获取最近10轮对话"""
     try:
-        session_token = state.get("session_id")
-        if not session_token:
+        conversation_id = state.get("conversation_id")  # 改为使用 conversation_id
+        if not conversation_id:
             return {"working_memory_text": "", "working_memory_count": 0}
         
         # 获取最近10轮对话（20条消息）
-        messages = await working_memory.get_messages(session_token)
+        messages = await working_memory.get_messages(conversation_id)  # 使用 conversation_id
         
         if not messages:
             return {"working_memory_text": "", "working_memory_count": 0}
@@ -82,7 +83,7 @@ async def get_working_memory_node(state: WorkflowState) -> Dict[str, Any]:
             memory_lines.append(f"{role_name}：{content}")
         
         memory_text = "\n".join(memory_lines)
-        logger.info(f"✅ Working Memory 获取完成，共 {len(messages)} 条消息")
+        logger.info(f"✅ Working Memory 获取完成，共 {len(messages)} 条消息（conversation_id={conversation_id[:20]}...）")
         
         return {
             "working_memory_text": memory_text,
@@ -97,17 +98,17 @@ async def get_working_memory_node(state: WorkflowState) -> Dict[str, Any]:
 async def save_to_working_memory_node(state: WorkflowState) -> Dict[str, Any]:
     """保存到 Working Memory 节点 - 将对话保存到 Redis"""
     try:
-        session_token = state.get("session_id")
+        conversation_id = state.get("conversation_id")  # 改为使用 conversation_id
         user_input = state.get("user_input", "")
         llm_response = state.get("llm_response", "")
         
-        if not session_token:
+        if not conversation_id:
             return {"working_memory_saved": False}
         
         # 保存用户消息
         if user_input:
             await working_memory.save_message(
-                session_token=session_token,
+                session_token=conversation_id,  # 使用 conversation_id
                 role="user",
                 content=user_input
             )
@@ -115,12 +116,12 @@ async def save_to_working_memory_node(state: WorkflowState) -> Dict[str, Any]:
         # 保存助手消息
         if llm_response:
             await working_memory.save_message(
-                session_token=session_token,
+                session_token=conversation_id,  # 使用 conversation_id
                 role="assistant",
                 content=llm_response
             )
         
-        logger.info(f"✅ Working Memory 保存完成")
+        logger.info(f"✅ Working Memory 保存完成（conversation_id={conversation_id[:20]}...）")
         return {"working_memory_saved": True}
     except Exception as e:
         logger.error(f"保存到 Working Memory 失败: {e}", exc_info=True)
@@ -142,6 +143,7 @@ def create_chat_workflow():
     builder.add_node("llm_answer", async_llm_stream_answer_node)          # 第5步：LLM回答（异步流式）
     builder.add_node("save_working_memory", save_to_working_memory_node)  # 第6步：保存到 Working Memory
     builder.add_node("save_memory", save_memory_node)                     # 第7步：保存到 ChromaDB
+    builder.add_node("save_database", save_database_node)                 # 第8步：保存到 MySQL
     
     # 工单节点已移除（前端直接调用 Golang 接口）
     # builder.add_node("ticket_analysis", async_ticket_analysis_node)
@@ -151,7 +153,7 @@ def create_chat_workflow():
     builder.set_entry_point("user_info")  # 从用户信息获取开始
     
     # 4. 添加边（连接节点）
-    # 并行流程：用户信息 → (Working Memory + ChromaDB记忆 并行) → 意图识别 → LLM对话 → (保存两个存储 串行) → 结束
+    # 并行流程：用户信息 → (Working Memory + ChromaDB记忆 并行) → 意图识别 → LLM对话 → 保存Working Memory → (ChromaDB + MySQL 并行保存) → 结束
     builder.add_edge("user_info", "get_working_memory")           # 用户信息 → Working Memory
     builder.add_edge("user_info", "get_memory")                   # 用户信息 → ChromaDB（并行）
     builder.add_edge("get_working_memory", "intent_recognition")  # Working Memory → 意图识别
@@ -159,7 +161,9 @@ def create_chat_workflow():
     builder.add_edge("intent_recognition", "llm_answer")          # 意图识别 → LLM对话
     builder.add_edge("llm_answer", "save_working_memory")         # LLM对话 → 保存到 Working Memory
     builder.add_edge("save_working_memory", "save_memory")        # Working Memory → 保存到 ChromaDB
+    builder.add_edge("save_working_memory", "save_database")      # Working Memory → 保存到 MySQL（并行）
     builder.add_edge("save_memory", END)                           # ChromaDB保存 → 结束
+    builder.add_edge("save_database", END)                         # MySQL保存 → 结束
     
     # 5. 验证图结构
     builder.validate()
@@ -168,7 +172,7 @@ def create_chat_workflow():
     workflow = builder.compile()
     
     logger.info("✅ 对话工作流创建完成")
-    logger.info("工作流结构：用户信息 → [Working Memory + ChromaDB 并行] → 意图识别 → LLM对话 → 保存Working Memory → 保存ChromaDB → 结束")
+    logger.info("工作流结构：用户信息 → [Working Memory + ChromaDB 并行] → 意图识别 → LLM对话 → 保存Working Memory → [ChromaDB + MySQL 并行保存] → 结束")
     
     return workflow
 
@@ -195,9 +199,11 @@ def get_chat_workflow():
 @observe(name="chat_workflow_stream", tags=["workflow", "chat", "streaming"])
 async def run_chat_workflow_streaming(
     user_input: str,
+    conversation_id: str,  # 新增：对话ID
     session_id: str,
     user_id: Optional[str] = None,
     username: Optional[str] = None,
+    access_token: Optional[str] = None,  # 新增：Access Token
     user_confirmed_ticket: Optional[bool] = None  # 用户确认创建工单
 ):
     """运行对话工作流（流式版本）
@@ -217,6 +223,7 @@ async def run_chat_workflow_streaming(
     
     initial_state: WorkflowState = {
         "user_input": user_input,
+        "conversation_id": conversation_id,  # 新增：传入 conversation_id
         "session_id": session_id,
         "is_streaming": True,
         # 意图识别初始为空（对话后才进行意图分析）
@@ -228,6 +235,9 @@ async def run_chat_workflow_streaming(
     
     if user_id:
         initial_state["user_id"] = user_id
+    
+    if access_token:
+        initial_state["access_token"] = access_token  # 新增：传入 access_token
 
     # 如果用户确认了工单，设置 state
     if user_confirmed_ticket is not None:

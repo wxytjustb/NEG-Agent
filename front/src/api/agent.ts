@@ -72,6 +72,96 @@ export interface WorkflowChatResponse {
   };
 }
 
+// Conversation ID 响应
+export interface ConversationResponse {
+  code: number;
+  msg: string;
+  data: {
+    conversation_id: string;
+    created_at: number;
+  };
+}
+
+// 会话列表项
+export interface ConversationListItem {
+  conversation_id: string;
+  first_user_message: string | null;
+  last_assistant_message: string | null;
+  message_count: number;
+  created_at: string | null;
+}
+
+// 会话列表响应
+export interface ConversationListResponse {
+  code: number;
+  msg: string;
+  data: {
+    user_id: string;
+    total_conversations: number;
+    conversations: ConversationListItem[];
+  };
+}
+
+
+/**
+ * 获取用户的所有会话列表
+ * @param sessionToken 会话Token
+ * @returns Promise<ConversationListResponse>
+ */
+export async function getConversationList(sessionToken: string): Promise<ConversationListResponse> {
+  try {
+    const response = await fetch(`/api/conversation/list?session_token=${sessionToken}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        console.warn('[ConversationList] Session 已过期，清除本地缓存');
+        localStorage.removeItem('session_token');
+        localStorage.removeItem('access_token');
+        throw new Error('会话已过期，请刷新页面重新登录');
+      }
+      throw new Error(`获取会话列表失败: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log('[ConversationList] 会话列表:', data);
+    return data;
+  } catch (error) {
+    console.error('Get conversation list error:', error);
+    throw error;
+  }
+}
+
+/**
+ * 创建新的 conversation_id
+ * @param sessionToken 会话Token
+ * @returns Promise<ConversationResponse>
+ */
+export async function createConversationId(sessionToken: string): Promise<ConversationResponse> {
+  try {
+    const response = await fetch(`/api/conversation/create?session_token=${sessionToken}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`创建 conversation_id 失败: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log('[Conversation] 创建新的 conversation_id:', data.data.conversation_id);
+    return data;
+  } catch (error) {
+    console.error('Create conversation_id error:', error);
+    throw error;
+  }
+}
 
 /**
  * 初始化 Agent 会话

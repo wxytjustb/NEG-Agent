@@ -314,6 +314,8 @@ async def create_or_get_session(user_data: Dict[str, Any]) -> str:
         "company": user_data.get('companyName', '未知'),
         "age": str(user_data.get('age', '未知')),
         "gender": user_data.get('gender', '未知'),
+        # 新增：存储 access_token（用于调用 Golang API）
+        "access_token": user_data.get('access_token', ''),
     }
     
     try:

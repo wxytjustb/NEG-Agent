@@ -1,5 +1,5 @@
 # 智能体接口 - Agent API
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import StreamingResponse
 from app.schemas.agent_schema import WorkflowChatRequest, HistoryResponse
 from app.modules.workflow.workflows.workflow import run_chat_workflow_streaming
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/agent", tags=["Agent"])
 
 
 @router.post("/init", summary="初始化会话")
-async def init_session(user: dict = Depends(get_current_user)):
+async def init_session(user: dict = Depends(get_current_user), access_token: str = Query(..., description="Access Token")):
     """
     初始化 Agent 会话
     
@@ -34,6 +34,9 @@ async def init_session(user: dict = Depends(get_current_user)):
     - expires_in: 会话过期时间 (秒)
     """
     try:
+        # 将 access_token 添加到 user_data 中
+        user['access_token'] = access_token
+        
         # 创建或获取会话 (如果用户已有活跃会话则复用)
         from app.core.config import settings
         session_token = await create_or_get_session(user)
@@ -70,17 +73,29 @@ async def chat_with_workflow(request: WorkflowChatRequest, user: dict = Depends(
     try:
         user_id = user.get("user_id")
         session_id = user.get("session_token")
+        access_token = user.get("access_token")  # 新增：获取 access_token
+        
+        # 调试日志
+        logger.info(f"[Debug] user keys: {user.keys()}")
+        logger.info(f"[Debug] access_token exists: {bool(access_token)}")
+        if access_token:
+            logger.info(f"[Debug] access_token length: {len(access_token)}")
         
         if not user_id or not session_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="无法获取用户ID")
+        
+        if not access_token:
+            logger.warning("⚠️ Session 中没有 access_token，MySQL 保存可能失败")
         
         async def sse_generator():
             try:
                 async for content in run_chat_workflow_streaming(
                     user_input=request.user_input,
+                    conversation_id=request.conversation_id,  # 传入 conversation_id
                     session_id=session_id,
                     user_id=user_id,
                     username=user.get("username"),
+                    access_token=access_token,  # 新增：传递 access_token
                     user_confirmed_ticket=request.user_confirmed_ticket  # 传递用户确认状态
                 ):
                     # SSE 格式：data: 内容\n\n
@@ -107,65 +122,20 @@ async def chat_with_workflow(request: WorkflowChatRequest, user: dict = Depends(
         return StreamingResponse(error_generator(), media_type="text/event-stream")
 
 
-@router.get("/history/{session_id}", response_model=HistoryResponse, summary="获取指定会话的所有历史对话")
-async def get_session_history(
-    session_id: str,
-    limit: Optional[int] = None,
-    user: dict = Depends(get_current_session)
-):
-    """
-    获取指定会话的所有历史对话记录
-    
-    Args:
-        session_id: 会话ID
-        limit: 限制返回数量（可选，不传则返回全部）
-        user: 当前登录用户信息（自动注入）
-    
-    Returns:
-        HistoryResponse: 包含所有历史消息的响应
-            - user_id: 用户ID
-            - session_id: 会话ID
-            - total_count: 消息总数
-            - messages: 消息列表，每条消息包含：
-                - id: 消息ID
-                - role: 角色（user/assistant）
-                - content: 消息内容
-                - timestamp: 时间戳
-    
-    Example:
-        GET /api/agent/history/abc123?limit=10
-    """
-    try:
-        user_id = user.get("user_id")
-        
-        if not user_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="无法获取用户ID"
-            )
-        
-        # 从 ChromaDB 获取历史消息
-        messages = chromadb_core.get_all_messages(
-            user_id=str(user_id),
-            session_id=session_id,
-            limit=limit
-        )
-        
-        logger.info(f"✅ 获取历史对话成功: user_id={user_id}, session_id={session_id[:20]}..., count={len(messages)}")
-        
-        return HistoryResponse(
-            user_id=str(user_id),
-            session_id=session_id,
-            total_count=len(messages),
-            messages=messages
-        )
-        
-    except Exception as e:
-        logger.error(f"❌ 获取历史对话失败: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"获取历史对话失败: {str(e)}"
-        )
+# ===== 已废弃：以下接口已不再使用 =====
+# 原因：历史记录已改用 MySQL（通过 /api/conversation/history/{conversation_id}）
+# ChromaDB 仅用于向量检索，不再用于历史查询
+
+# @router.get("/history/{session_id}", response_model=HistoryResponse, summary="获取指定会话的所有历史对话")
+# async def get_session_history(
+#     session_id: str,
+#     limit: Optional[int] = None,
+#     user: dict = Depends(get_current_session)
+# ):
+#     """
+#     已废弃 - 请使用 /api/conversation/history/{conversation_id}
+#     """
+#     pass
 
 
 # 工单创建请求体

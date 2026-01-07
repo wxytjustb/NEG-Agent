@@ -8,10 +8,22 @@
         </svg>
       </button>
       <h1 class="chat-title">{{ title }}</h1>
+      <div class="header-actions">
+        <button class="history-btn" @click="toggleHistoryList" title="历史记录">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+            <path d="M12 8V12L15 15M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <button class="new-chat-btn" @click="startNewChat" title="新对话">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+            <path d="M12 5V19M5 12H19" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
     </div>
 
     <!-- 消息列表 -->
-    <div class="chat-messages" ref="messagesContainer">
+    <div class="chat-messages" ref="messagesContainer" v-show="!showHistoryList">
       <div
         v-for="(msg, index) in messages"
         :key="index"
@@ -36,8 +48,43 @@
       </div>
     </div>
 
+    <!-- 历史记录列表 -->
+    <div class="history-list" v-show="showHistoryList">
+      <div class="history-header">
+        <h3>历史记录</h3>
+      </div>
+      <div class="history-content">
+        <div v-if="isLoadingHistory" class="history-loading">
+          <div class="loading-spinner"></div>
+          <p>加载中...</p>
+        </div>
+        <div v-else-if="conversationList.length === 0" class="history-empty">
+          <p>暂无历史记录</p>
+        </div>
+        <div v-else class="history-items">
+          <div
+            v-for="conv in conversationList"
+            :key="conv.conversation_id"
+            class="history-item"
+            @click="loadConversation(conv.conversation_id)"
+          >
+            <div class="history-item-title">
+              {{ conv.first_user_message || '无标题' }}
+            </div>
+            <div class="history-item-preview">
+              {{ conv.last_assistant_message || '' }}
+            </div>
+            <div class="history-item-meta">
+              <span class="message-count">{{ conv.message_count }} 条消息</span>
+              <span class="created-time">{{ formatTime(conv.created_at) }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 输入框 -->
-    <div class="chat-input-wrapper">
+    <div class="chat-input-wrapper" v-show="!showHistoryList">
       <textarea
         v-model="inputText"
         class="chat-input"
@@ -113,7 +160,8 @@
 
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted } from 'vue';
-import { initSession, getSessionHistory } from '../api/agent';
+import { initSession, getSessionHistory, createConversationId, getConversationList } from '../api/agent';
+import type { ConversationListItem } from '../api/agent';
 
 // 消息类型（扩展支持分隔线）
 interface ChatMessage {
@@ -123,7 +171,13 @@ interface ChatMessage {
 
 // Session token management
 const sessionToken = ref<string>('');
+const conversationId = ref<string>('');  // 新增：对话ID
 const isInitializing = ref(false);
+
+// 历史记录相关状态
+const showHistoryList = ref(false);  // 是否显示历史列表
+const conversationList = ref<ConversationListItem[]>([]);  // 会话列表
+const isLoadingHistory = ref(false);  // 是否正在加载历史
 
 const title = ref('AI 助手');
 const provider = ref<'deepseek'>('deepseek');  // 固定为 deepseek
@@ -175,6 +229,142 @@ const scrollToBottom = () => {
 // 返回
 const goBack = () => {
   window.history.back();
+};
+
+// 新对话
+const startNewChat = () => {
+  console.log('[NewChat] 开始新对话');
+  // 清空 conversation_id
+  conversationId.value = '';
+  // 清空消息列表，显示欢迎消息
+  messages.value = [
+    {
+      role: 'assistant',
+      content: '你好，我是安然，你的心理陪伴者。我在这里倾听你的心声，如果你在工作中遇到困扰或不公，随时可以跟我说。'
+    }
+  ];
+  // 关闭历史列表
+  showHistoryList.value = false;
+  scrollToBottom();
+};
+
+// 切换历史列表显示
+const toggleHistoryList = async () => {
+  showHistoryList.value = !showHistoryList.value;
+  
+  if (showHistoryList.value) {
+    // 打开历史列表时，加载数据
+    await loadHistoryList();
+  }
+};
+
+// 加载历史列表
+const loadHistoryList = async () => {
+  if (!sessionToken.value) {
+    console.error('[History] 缺少 session_token');
+    return;
+  }
+  
+  try {
+    isLoadingHistory.value = true;
+    console.log('[History] 开始加载历史列表...');
+    
+    const response = await getConversationList(sessionToken.value);
+    console.log('[History] 完整响应:', response);
+    
+    if (response.code === 200) {
+      conversationList.value = response.data.conversations;
+      console.log('[History] 历史列表加载成功，共', conversationList.value.length, '条记录');
+    } else {
+      console.error('[History] 加载失败 | code:', response.code, '| msg:', response.msg);
+      alert('❌ 加载失败: ' + (response.msg || '未知错误'));
+    }
+  } catch (error: any) {
+    console.error('[History] 加载异常:', error);
+    alert('❌ 加载失败: ' + error.message);
+  } finally {
+    isLoadingHistory.value = false;
+  }
+};
+
+// 加载具体某个会话的历史
+const loadConversation = async (convId: string) => {
+  console.log('[History] 开始加载会话:', convId);
+  
+  if (!sessionToken.value) {
+    alert('❌ 会话已过期，请刷新页面');
+    return;
+  }
+  
+  try {
+    // 1. 设置 conversation_id
+    conversationId.value = convId;
+    console.log('[History] 设置 conversation_id:', convId.substring(0, 20) + '...');
+    
+    // 2. 调用后端接口获取该会话的完整历史（从 MySQL）
+    const response = await fetch(
+      `/api/conversation/history/${convId}?session_token=${sessionToken.value}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    
+    const data = await response.json();
+    console.log('[History] 历史消息:', data);
+    
+    // 3. 渲染历史消息
+    if (data.messages && data.messages.length > 0) {
+      messages.value = data.messages.map((msg: any) => ({
+        role: msg.role,
+        content: msg.content
+      }));
+      console.log('[History] ✅ 加载历史成功，消息数:', data.messages.length);
+    } else {
+      // 无历史消息，显示默认欢迎信息
+      messages.value = [
+        {
+          role: 'assistant',
+          content: '你好，我是安然，你的心理陪伴者。我在这里倾听你的心声，如果你在工作中遇到困扰或不公，随时可以跟我说。'
+        }
+      ];
+      console.log('[History] ⚠️ 该会话无历史消息');
+    }
+    
+    // 4. 关闭历史列表，显示聊天界面
+    showHistoryList.value = false;
+    scrollToBottom();
+    
+    console.log('[History] ✅ 会话切换完成，可以继续对话');
+    
+  } catch (error: any) {
+    console.error('[History] 加载会话失败:', error);
+    alert('❌ 加载失败: ' + error.message);
+  }
+};
+
+// 格式化时间
+const formatTime = (timeStr: string | null): string => {
+  if (!timeStr) return '';
+  try {
+    const date = new Date(timeStr);
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    
+    if (days === 0) return '今天';
+    if (days === 1) return '昨天';
+    if (days < 7) return `${days}天前`;
+    return date.toLocaleDateString('zh-CN');
+  } catch (e) {
+    return '';
+  }
 };
 
 // 工单确认处理
@@ -332,6 +522,25 @@ const handleSend = async () => {
 
 // Workflow 流式发送
 const handleWorkflowSend = async (userMessage: string, additionalState: any = {}) => {
+  // 如果还没有 conversation_id，先创建一个
+  if (!conversationId.value) {
+    console.log('[Conversation] 第一次发送消息，创建对话ID...');
+    try {
+      const convResponse = await createConversationId(sessionToken.value);
+      if (convResponse.code === 200) {
+        conversationId.value = convResponse.data.conversation_id;
+        console.log('[Conversation] ✅ 对话ID创建成功:', conversationId.value.substring(0, 20) + '...');
+      } else {
+        console.error('[Conversation] 对话ID创建失败:', convResponse);
+        throw new Error('对话初始化失败');
+      }
+    } catch (error: any) {
+      console.error('[Conversation] 创建对话ID异常:', error);
+      alert('❌ 对话初始化失败，请刷新页面重试');
+      return;
+    }
+  }
+  
   // 添加助手消息占位符
   const assistantMessageIndex = messages.value.length;
   messages.value.push({
@@ -349,7 +558,8 @@ const handleWorkflowSend = async (userMessage: string, additionalState: any = {}
     
     // 构建请求体，支持额外的 state 传递
     const requestBody: any = {
-      user_input: userMessage
+      user_input: userMessage,
+      conversation_id: conversationId.value  // 新增：传递 conversation_id
     };
     
     // 如果有额外的 state，合并到请求体
@@ -357,6 +567,8 @@ const handleWorkflowSend = async (userMessage: string, additionalState: any = {}
       Object.assign(requestBody, additionalState);
       console.log('[Workflow] 携带额外 state:', additionalState);
     }
+    
+    console.log('[Workflow] conversation_id:', conversationId.value);
     
     const response = await fetch(urlWithToken, {
       method: 'POST',
@@ -532,11 +744,11 @@ const initializeSession = async () => {
 
     if (cachedAccessToken === ACCESS_TOKEN) {
       // access_token 没变，使用缓存的 session_token
-      // 注意：如果 Redis 中的 session 已过期，会在发送消息时检测到 401 错误并清除缓存
       const cachedSessionToken = localStorage.getItem('session_token');
       if (cachedSessionToken) {
         sessionToken.value = cachedSessionToken;
         console.log('[Session] ✅ 使用缓存的 session_token:', cachedSessionToken.substring(0, 20) + '...');
+        // conversation_id 会在第一次发送消息时创建
         return;
       }
     } else {
@@ -558,6 +770,7 @@ const initializeSession = async () => {
       localStorage.setItem('session_token', response.data.session_token);
       localStorage.setItem('access_token', ACCESS_TOKEN);
       console.log('[Session] ✅ 会话初始化成功:', sessionToken.value.substring(0, 20) + '...');
+      // conversation_id 会在第一次发送消息时创建
     } else {
       console.error('[Session] 会话初始化失败:', response);
       const errorMsg = response.msg || '会话初始化失败';
@@ -580,8 +793,8 @@ const initializeSession = async () => {
 onMounted(async () => {
   console.log('[ChatPage] 💬 组件加载 - 这是普通对话页面！');
   await initializeSession();
-  // 初始化完成后加载历史
-  await loadChatHistory();
+  // ✅ 不再自动加载历史，仅显示默认欢迎信息
+  // await loadChatHistory(); // 删除
   scrollToBottom();
 });
 
@@ -607,9 +820,12 @@ onMounted(async () => {
   background: #fff;
   border-bottom: 1px solid #e5e5e5;
   height: 56px;
+  position: relative;  /* 添加定位上下文 */
 }
 
-.back-btn {
+.back-btn,
+.new-chat-btn,
+.history-btn {
   width: 40px;
   height: 40px;
   border: none;
@@ -620,10 +836,25 @@ onMounted(async () => {
   justify-content: center;
   border-radius: 8px;
   transition: background 0.2s;
+  color: #333;  /* 设置默认颜色 */
 }
 
-.back-btn:hover {
+.back-btn svg,
+.new-chat-btn svg,
+.history-btn svg {
+  color: #333;  /* SVG 图标颜色 */
+}
+
+.back-btn:hover,
+.new-chat-btn:hover,
+.history-btn:hover {
   background: #f0f0f0;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+  z-index: 10;  /* 确保在最上层 */
 }
 
 .chat-title {
@@ -631,8 +862,9 @@ onMounted(async () => {
   font-weight: 600;
   margin: 0;
   color: #333;
-  flex: 1;
-  text-align: center;
+  position: absolute;  /* 绝对定位居中 */
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 .header-spacer {
@@ -667,6 +899,109 @@ onMounted(async () => {
   border-color: #c9c9c9;
   color: #c9c9c9;
   cursor: not-allowed;
+}
+
+/* 历史记录列表 */
+.history-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  overflow: hidden;
+}
+
+.history-header {
+  padding: 16px;
+  border-bottom: 1px solid #e5e5e5;
+}
+
+.history-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #333;
+}
+
+.history-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.history-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  color: #999;
+}
+
+.loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid #f3f3f3;
+  border-top: 3px solid #07c160;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 12px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.history-empty {
+  text-align: center;
+  padding: 40px;
+  color: #999;
+}
+
+.history-items {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.history-item {
+  background: #fff;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  padding: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.history-item:hover {
+  background: #f5f5f5;
+  border-color: #07c160;
+}
+
+.history-item-title {
+  font-size: 15px;
+  font-weight: 500;
+  color: #333;
+  margin-bottom: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-item-preview {
+  font-size: 13px;
+  color: #666;
+  margin-bottom: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-item-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #999;
 }
 
 /* 消息列表 */
