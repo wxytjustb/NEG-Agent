@@ -12,32 +12,28 @@ logger = logging.getLogger(__name__)
 
 @observe(name="llm_answer_node", tags=["node", "llm", "generation"])
 async def async_llm_stream_answer_node(state: WorkflowState, config: Optional[RunnableConfig] = None):
-    """显LLM 异步流式回答节点 - 供 astream_events 使用
-    
-    注意：此节点在意图识别之前执行，不使用意图信息生成回答
-    """
+    """LLM 异步流式回答节点 - 供 astream_events 使用"""
     try:
         user_input = state.get("user_input", "")
-        # ❗ 此时意图识别还未执行，不使用意图信息
+        intent = state.get("intent", "日常对话")
+        intents = state.get("intents", [])  # 新增：获取所有意图
         company = state.get("company", "未知")
         age = state.get("age", "未知")
         gender = state.get("gender", "未知")
-        
-        # 获取两种记忆源
-        working_memory_text = state.get("working_memory_text", "")  # Working Memory（Redis 10轮对话）
-        history_text = state.get("history_text", "")  # ChromaDB 历史消息（兼容）
-        similar_messages = state.get("similar_messages", "")  # ChromaDB 相似度检索
+        history_text = state.get("history_text", "")  # 最近5条历史消息
+        similar_messages = state.get("similar_messages", "")  # 相似度较高的消息
+        feedback_summary = state.get("feedback_summary", "")  # 用户反馈趋势摘要
         
         full_prompt = build_full_prompt(
             user_input=user_input,
-            working_memory_text=working_memory_text,  # 优先使用 Working Memory
-            history_text=history_text,  # 兼容旧代码
+            history_text=history_text,
             similar_messages=similar_messages,
             company=company,
             age=age,
             gender=gender,
-            current_intent="",  # 意图识别还未执行，传空值
-            intents=[]  # 空列表
+            current_intent=intent,
+            intents=intents,  # 新增：传入所有意图
+            feedback_summary=feedback_summary  # 新增：传入反馈摘要
         )
         
         llm = llm_core.create_llm(

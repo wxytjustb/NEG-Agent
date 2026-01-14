@@ -46,6 +46,10 @@ CONVERSATION_TEMPLATE = """{system_prompt}
 当前对话意图：{current_intent}
 
 ---
+近七天反馈情况：
+{feedback_summary}
+
+---
 近期对话记忆（Working Memory - 最近10轮）：
 {working_memory}
 
@@ -54,7 +58,6 @@ CONVERSATION_TEMPLATE = """{system_prompt}
 
 用户：{input}
 安然：
-
 """
 
 # 危机关键词列表（用于安全检测）
@@ -353,7 +356,8 @@ def build_full_prompt(
     age="未知",
     gender="未知",
     current_intent="日常对话",
-    intents=None  # 新增：所有意图列表
+    intents=None,  # 新增：所有意图列表
+    feedback_summary=""  # 新增：用户反馈趋势摘要
 ):
     """
     构建完整的对话 Prompt
@@ -368,6 +372,7 @@ def build_full_prompt(
         gender: 用户性别
         current_intent: 主意图（向后兼容）
         intents: 所有意图列表 [{{"intent": "...", "confidence": ...}}, ...]
+        feedback_summary: 用户反馈趋势摘要（近七天）
         
     Returns:
         完整的 Prompt 字符串
@@ -403,6 +408,7 @@ def build_full_prompt(
         age=age,
         gender=gender,
         current_intent=intent_display,
+        feedback_summary=feedback_summary.strip() if feedback_summary else "用户暂无反馈记录",
         working_memory=memory_display.strip() if memory_display else "（这是新对话的开始）",
         similar_messages=similar_messages.strip() if similar_messages else "（暂无相关历史记忆）",
         input=user_input

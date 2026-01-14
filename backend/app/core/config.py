@@ -77,6 +77,9 @@ class Settings(BaseSettings):
     # 历史记忆配置
     HISTORY_MESSAGE_LIMIT: int = 10  # 获取最近N条历史消息，默认10条
 
+    # 反馈趋势配置
+    FEEDBACK_TREND_DEFAULT_DAYS: int = 7  # 用户反馈趋势默认查询天数
+
     # 意图识别配置（Intent Recognition）
     INTENT_LABELS: str = "日常对话,法律咨询,情感倾诉"  # 意图标签（逗号分隔）
     INTENT_MIN_CONFIDENCE: float = 0.3  # 意图置信度阈值（低于此值归为日常对话）

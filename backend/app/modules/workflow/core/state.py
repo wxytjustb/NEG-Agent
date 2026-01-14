@@ -31,6 +31,8 @@ class WorkflowState(TypedDict, total=False):
     working_memory_count: int  # Working Memory 消息数量
     similar_messages: str  # 相似度较高的消息文本（ChromaDB 语义检索）
     similar_message_count: int  # 相似消息数量
+    feedback_summary: str  # 用户反馈趋势摘要（近七天）
+    feedback_data: Dict[str, Any]  # 用户反馈原始数据
     
     # ========== LLM 输出 ==========
     llm_response: str  # LLM 生成的回答

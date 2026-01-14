@@ -9,6 +9,7 @@ from app.modules.workflow.nodes.user_info import async_user_info_node  # 异步�
 from app.modules.workflow.nodes.chromadb_node import get_memory_node, save_memory_node  # ChromaDB 记忆节点
 from app.modules.workflow.nodes.database_node import save_database_node  # MySQL 数据库节点
 from app.modules.workflow.nodes.working_memory import working_memory  # Working Memory 短期记忆节点
+from app.modules.workflow.nodes.feedback_node import async_feedback_node  # 用户反馈节点
 # from app.utils.greeting import check_and_respond_greeting, stream_greeting_response  # 问候语检测和回复（暂时禁用）
 # 删除：不再需要创建工单节点，前端直接调用 Golang 接口
 from typing import Dict, Any, Optional
@@ -139,6 +140,7 @@ def create_chat_workflow():
     builder.add_node("user_info", async_user_info_node)                    # 第1步：获取用户画像
     builder.add_node("get_working_memory", get_working_memory_node)        # 第2步：获取 Working Memory（Redis 10轮对话）
     builder.add_node("get_memory", get_memory_node)                        # 第3步：获取 ChromaDB 历史记忆（相似度检索）
+    builder.add_node("get_feedback", async_feedback_node)                  # 第3步（并行）：获取用户反馈趋势
     builder.add_node("intent_recognition", intent_recognition_node)        # 第4步：意图识别
     builder.add_node("llm_answer", async_llm_stream_answer_node)          # 第5步：LLM回答（异步流式）
     builder.add_node("save_working_memory", save_to_working_memory_node)  # 第6步：保存到 Working Memory
@@ -153,11 +155,13 @@ def create_chat_workflow():
     builder.set_entry_point("user_info")  # 从用户信息获取开始
     
     # 4. 添加边（连接节点）
-    # 并行流程：用户信息 → (Working Memory + ChromaDB记忆 并行) → 意图识别 → LLM对话 → 保存Working Memory → (ChromaDB + MySQL 并行保存) → 结束
+    # 并行流程：用户信息 → (Working Memory + ChromaDB记忆 + 反馈趋势 并行) → 意图识别 → LLM对话 → 保存Working Memory → (ChromaDB + MySQL 并行保存) → 结束
     builder.add_edge("user_info", "get_working_memory")           # 用户信息 → Working Memory
     builder.add_edge("user_info", "get_memory")                   # 用户信息 → ChromaDB（并行）
+    builder.add_edge("user_info", "get_feedback")                 # 用户信息 → 反馈趋势（并行）
     builder.add_edge("get_working_memory", "intent_recognition")  # Working Memory → 意图识别
-    builder.add_edge("get_memory", "intent_recognition")          # ChromaDB → 意图识别（两路汇聚）
+    builder.add_edge("get_memory", "intent_recognition")          # ChromaDB → 意图识别（三路汇聚）
+    builder.add_edge("get_feedback", "intent_recognition")        # 反馈趋势 → 意图识别（三路汇聚）
     builder.add_edge("intent_recognition", "llm_answer")          # 意图识别 → LLM对话
     builder.add_edge("llm_answer", "save_working_memory")         # LLM对话 → 保存到 Working Memory
     builder.add_edge("save_working_memory", "save_memory")        # Working Memory → 保存到 ChromaDB
@@ -172,7 +176,7 @@ def create_chat_workflow():
     workflow = builder.compile()
     
     logger.info("✅ 对话工作流创建完成")
-    logger.info("工作流结构：用户信息 → [Working Memory + ChromaDB 并行] → 意图识别 → LLM对话 → 保存Working Memory → [ChromaDB + MySQL 并行保存] → 结束")
+    logger.info("工作流结构：用户信息 → [Working Memory + ChromaDB + 反馈趋势 并行] → 意图识别 → LLM对话 → 保存Working Memory → [ChromaDB + MySQL 并行保存] → 结束")
     
     return workflow
 

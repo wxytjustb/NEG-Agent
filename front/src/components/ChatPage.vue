@@ -35,15 +35,44 @@
           <span class="divider-text">{{ msg.content }}</span>
         </div>
         <!-- 正常消息 -->
-        <div v-else class="message-bubble" :class="msg.role">
-          <!-- 加载动画 -->
-          <div v-if="isLoading && msg.role === 'assistant' && index === messages.length - 1 && !msg.content" class="typing-indicator">
-            <span class="dot"></span>
-            <span class="dot"></span>
-            <span class="dot"></span>
+        <div v-else>
+          <div class="message-bubble" :class="msg.role">
+            <!-- 加载动画 -->
+            <div v-if="isLoading && msg.role === 'assistant' && index === messages.length - 1 && !msg.content" class="typing-indicator">
+              <span class="dot"></span>
+              <span class="dot"></span>
+              <span class="dot"></span>
+            </div>
+            <!-- 消息内容 -->
+            <div v-else class="message-text">{{ msg.content }}</div>
           </div>
-          <!-- 消息内容 -->
-          <div v-else class="message-text">{{ msg.content }}</div>
+          
+          <!-- 反馈按钮（仅AI回复显示） -->
+          <div v-if="msg.role === 'assistant' && msg.content && !isLoading && !msg.isWelcome" class="feedback-buttons">
+            <button 
+              class="feedback-btn"
+              :class="{ active: msg.feedbackStatus === 'useful' }"
+              @click="handleFeedback(index, true)"
+              :disabled="msg.feedbackStatus !== 'none' && msg.feedbackStatus !== undefined"
+              title="有用"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <path d="M7 22V11M2 13V20C2 21.1046 2.89543 22 4 22H17.4262C18.907 22 20.1662 20.9197 20.3914 19.4562L21.4683 12.4562C21.7479 10.6389 20.3418 9 18.5032 9H15C14.4477 9 14 8.55228 14 8V4.46584C14 3.10399 12.896 2 11.5342 2C11.2093 2 10.915 2.1913 10.7831 2.48812L7.26394 10.4061C7.10344 10.7673 6.74532 11 6.35013 11H4C2.89543 11 2 11.8954 2 13Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+            <button 
+              class="feedback-btn"
+              :class="{ active: msg.feedbackStatus === 'not_useful' }"
+              @click="handleFeedback(index, false)"
+              :disabled="msg.feedbackStatus !== 'none' && msg.feedbackStatus !== undefined"
+              title="无用"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <path d="M17 2V13M22 11V4C22 2.89543 21.1046 2 20 2H6.57377C5.09297 2 3.83376 3.08028 3.60859 4.54377L2.53165 11.5438C2.25211 13.3611 3.65824 15 5.49686 15H9C9.55228 15 10 15.4477 10 16V19.5342C10 20.896 11.104 22 12.4658 22C12.7907 22 13.085 21.8087 13.2169 21.5119L16.7361 13.5939C16.8966 13.2327 17.2547 13 17.6499 13H20C21.1046 13 22 12.1046 22 11Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+            <span v-if="msg.feedbackStatus !== 'none' && msg.feedbackStatus !== undefined" class="feedback-status-label">已反馈</span>
+          </div>
         </div>
       </div>
     </div>
@@ -120,7 +149,7 @@
       </div>
     </div>
 
-    <!-- 工单表单弹窗（用户确认后显示） -->
+    <!-- 工单表单弹窗（用户确认后显示）-->
     <div v-if="showTicketForm" class="ticket-modal-overlay" @click.self="handleTicketFormCancel">
       <div class="ticket-modal ticket-form-modal">
         <div class="ticket-modal-header">
@@ -155,18 +184,73 @@
         </div>
       </div>
     </div>
+
+    <!-- 反馈弹窗（负面反馈）-->
+    <div v-if="showFeedbackModal" class="ticket-modal-overlay" @click.self="handleNegativeFeedbackCancel">
+      <div class="ticket-modal feedback-modal">
+        <div class="ticket-modal-header">
+          <h3>💬 告诉我为何不好</h3>
+        </div>
+        <div class="ticket-modal-body">
+          <!-- 反馈标签 -->
+          <div class="feedback-tags">
+            <button 
+              v-for="tag in ['问题没解决', '内容不准确', '态度不好', '处理速度慢', '数据不积极', '其它']" 
+              :key="tag"
+              class="feedback-tag"
+              :class="{ active: feedbackTags.includes(tag) }"
+              @click="toggleFeedbackTag(tag)"
+            >
+              {{ tag }}
+            </button>
+          </div>
+          
+          <!-- 评语输入 -->
+          <div class="form-group">
+            <textarea 
+              v-model="feedbackComment" 
+              class="form-textarea feedback-textarea" 
+              rows="4" 
+              placeholder="请进一步说明（选填）..."
+              maxlength="300"
+            ></textarea>
+            <div class="char-count">{{ feedbackComment.length }}/300</div>
+          </div>
+        </div>
+        <div class="ticket-modal-footer">
+          <button class="ticket-btn ticket-btn-cancel" @click="handleNegativeFeedbackCancel">取消</button>
+          <button class="ticket-btn ticket-btn-confirm" @click="handleNegativeFeedbackSubmit">
+            提交
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 反馈成功提示 -->
+    <div v-if="showFeedbackSuccess" class="feedback-success-toast">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+        <path d="M20 6L9 17L4 12" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span>感谢您的反馈！</span>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted } from 'vue';
 import { initSession, getSessionHistory, createConversationId, getConversationList } from '../api/agent';
+import { createFeedback, getFeedbackByConversation } from '../api/feedback';
 import type { ConversationListItem } from '../api/agent';
+import type { CreateFeedbackRequest } from '../api/feedback';
 
 // 消息类型（扩展支持分隔线）
 interface ChatMessage {
   role: 'user' | 'assistant' | 'system' | 'divider';
   content: string;
+  timestamp?: string;  // 新增：消息时间戳（用于时间比对）
+  feedbackStatus?: 'none' | 'useful' | 'not_useful' | 'submitted';  // 新增：反馈状态，submitted 表示历史已反馈
+  userMessage?: string;  // 新增：对应的用户消息
+  isWelcome?: boolean;  // 新增：是否是欢迎消息
 }
 
 // Session token management
@@ -199,6 +283,13 @@ const ticketFormData = ref({
   images: [] as string[]  // 图片列表
 });
 
+// 反馈弹窗相关状态
+const showFeedbackModal = ref(false);  // 是否显示反馈弹窗
+const showFeedbackSuccess = ref(false);  // 是否显示成功提示
+const currentFeedbackIndex = ref(-1);  // 当前反馈的消息索引
+const feedbackComment = ref('');  // 反馈评语
+const feedbackTags = ref<string[]>([]);  // 选中的反馈标签
+
 // 是否可以提交工单
 const canSubmitTicket = computed(() => {
   return ticketFormData.value.content.trim().length > 0 && !isSubmittingTicket.value;
@@ -208,7 +299,8 @@ const canSubmitTicket = computed(() => {
 const messages = ref<ChatMessage[]>([
   {
     role: 'assistant',
-    content: '你好，我是安然，你的心理陪伴者。我在这里倾听你的心声，如果你在工作中遇到困扰或不公，随时可以跟我说。'
+    content: '你好，我是安然，你的心理陪伴者。我在这里倾听你的心声，如果你在工作中遇到困扰或不公，随时可以跟我说。',
+    isWelcome: true  // 标记为欢迎消息
   }
 ]);
 
@@ -323,7 +415,10 @@ const loadConversation = async (convId: string) => {
     if (data.messages && data.messages.length > 0) {
       messages.value = data.messages.map((msg: any) => ({
         role: msg.role,
-        content: msg.content
+        content: msg.content,
+        // 兼容不同后端返回字段名：timestamp / createdAt
+        timestamp: msg.timestamp || msg.createdAt,
+        feedbackStatus: 'none'  // 初始化反馈状态
       }));
       console.log('[History] ✅ 加载历史成功，消息数:', data.messages.length);
     } else {
@@ -340,7 +435,64 @@ const loadConversation = async (convId: string) => {
     // 4. 关闭历史列表，显示聊天界面
     showHistoryList.value = false;
     scrollToBottom();
-    
+
+    // 5. 查询当前会话的历史反馈，并标记到消息上
+    try {
+      const fbResp = await getFeedbackByConversation(sessionToken.value, conversationId.value);
+      if (fbResp && (fbResp.code === 200 || fbResp.code === 0) && fbResp.data && fbResp.data.items) {
+        const items: Array<{ userMessage: string; aiResponse: string; userMessageTimestamp?: string; aiResponseTimestamp?: string }> = fbResp.data.items;
+        console.log('[History] 已有反馈条目:', items.length);
+
+        // 规范化时间字符串：兼容 "YYYY-MM-DD HH:mm:ss" 与 ISO 格式
+        const normalizeTime = (s?: string): number | string | null => {
+          if (!s) return null;
+          const t = s.trim();
+          let d = new Date(t);
+          if (isNaN(d.getTime())) {
+            // 尝试替换空格为 T
+            const t2 = t.replace(' ', 'T');
+            d = new Date(t2);
+          }
+          return isNaN(d.getTime()) ? t : d.getTime();
+        };
+
+        const isSameTime = (a?: string, b?: string) => {
+          if (!a || !b) return true; // 任一缺失时不阻断匹配（兼容老数据）
+          const na = normalizeTime(a);
+          const nb = normalizeTime(b);
+          if (typeof na === 'number' && typeof nb === 'number') return na === nb;
+          return String(na) === String(nb);
+        };
+
+        items.forEach(item => {
+          // 先根据 userMessage 锚定该轮用户发言
+          const userIdx = messages.value.findIndex(m => m.role === 'user' && m.content === item.userMessage);
+
+          if (userIdx !== -1) {
+            // 从该用户消息之后向前查找第一个匹配的助手回复
+            for (let j = userIdx + 1; j < messages.value.length; j++) {
+              const m = messages.value[j];
+              if (m.role === 'user') break; // 到下一轮用户发言，停止搜索
+              if (m.role === 'assistant' && m.content === item.aiResponse) {
+                // 时间戳严格校验（在时间戳存在的情况下）
+                const userOk = isSameTime(messages.value[userIdx]?.timestamp, item.userMessageTimestamp);
+                const aiOk = isSameTime(m.timestamp, item.aiResponseTimestamp);
+                if (!userOk || !aiOk) {
+                  continue; // 时间不一致则不标记为已反馈
+                }
+                if (m.feedbackStatus === undefined || m.feedbackStatus === 'none') {
+                  m.feedbackStatus = 'submitted';
+                }
+                break;
+              }
+            }
+          } // 不再使用仅AI回复匹配的回退逻辑，必须同时匹配用户与AI消息
+        });
+      }
+    } catch (e) {
+      console.warn('[History] 查询会话反馈失败(不影响聊天):', e);
+    }
+
     console.log('[History] ✅ 会话切换完成，可以继续对话');
     
   } catch (error: any) {
@@ -501,6 +653,203 @@ const handleTicketFormSubmit = async () => {
 
 
 
+/// 处理反馈
+const handleFeedback = async (messageIndex: number, isUseful: boolean) => {
+  const message = messages.value[messageIndex];
+  
+  if (!message || message.role !== 'assistant') {
+    console.error('[Feedback] 无效的消息索引');
+    return;
+  }
+  
+  console.log('[Feedback] AI消息内容:', message.content);
+  console.log('[Feedback] 消息长度:', message.content?.length || 0);
+  
+  if (!message.content) {
+    console.error('[Feedback] AI消息内容为空！');
+    alert('❌ AI回复内容为空，无法提交反馈');
+    return;
+  }
+  
+  // 查找对应的用户消息（往前查找最近的user消息）
+  let userMessage = '';
+  for (let i = messageIndex - 1; i >= 0; i--) {
+    const msg = messages.value[i];
+    if (msg && msg.role === 'user') {
+      userMessage = msg.content;
+      break;
+    }
+  }
+  
+  if (!userMessage) {
+    console.error('[Feedback] 未找到对应的用户消息');
+    return;
+  }
+  
+  if (!conversationId.value) {
+    console.error('[Feedback] conversation_id 为空');
+    alert('❌ 无法提交反馈，请先发送消息');
+    return;
+  }
+  
+  console.log('[Feedback] 数据检查通过:', {
+    userMessage: userMessage.substring(0, 30),
+    aiMessage: message.content.substring(0, 30),
+    conversationId: conversationId.value
+  });
+  
+  if (isUseful) {
+    // 点击"有用"：直接提交反馈
+    await submitFeedback(messageIndex, userMessage, message.content, true, 'helpful', '');
+  } else {
+    // 点击"无用"：显示反馈表单
+    currentFeedbackIndex.value = messageIndex;
+    feedbackComment.value = '';
+    feedbackTags.value = [];
+    showFeedbackModal.value = true;
+  }
+};
+
+// 提交反馈
+const submitFeedback = async (
+  messageIndex: number,
+  userMsg: string,
+  aiMsg: string,
+  isUseful: boolean,
+  feedbackType: string,  // 新增：反馈类型
+  comment: string
+) => {
+  try {
+    console.log('[Feedback] 提交反馈:', {
+      isUseful,
+      feedbackType,
+      userMessage: userMsg.substring(0, 50) + '...',
+      aiResponse: aiMsg.substring(0, 50) + '...',
+      comment
+    });
+    
+    const feedbackParams: CreateFeedbackRequest = {
+      conversation_id: conversationId.value,
+      is_useful: isUseful,
+      feedback_type: feedbackType || undefined,  // 新增：反馈类型
+      comment: comment || undefined,
+      user_message: userMsg,
+      ai_response: aiMsg
+    };
+    
+    const response = await createFeedback(sessionToken.value, feedbackParams);
+    console.log('[Feedback] 后端完整响应:', response);
+    
+    // 兼容处理：判断是否成功
+    // 1. code === 200 (标准格式)
+    // 2. code === 0 (部分后端使用0表示成功)
+    // 3. msg 包含 '成功' 或 'success'
+    const isSuccess = 
+      response.code === 200 || 
+      response.code === 0 || 
+      (response.msg && (
+        response.msg.includes('成功') || 
+        response.msg.toLowerCase().includes('success')
+      ));
+    
+    if (isSuccess) {
+      // 更新反馈状态
+      const message = messages.value[messageIndex];
+      if (message) {
+        message.feedbackStatus = isUseful ? 'useful' : 'not_useful';
+      }
+      console.log('[Feedback] ✅ 反馈提交成功');
+      
+      // 显示成功提示
+      showFeedbackSuccess.value = true;
+      setTimeout(() => {
+        showFeedbackSuccess.value = false;
+      }, 2000);
+    } else {
+      console.error('[Feedback] 反馈失败:', response.msg || '未知错误');
+      alert(`❌ 反馈失败: ${response.msg || '请稍后重试'}`);
+    }
+  } catch (error: any) {
+    console.error('[Feedback] 提交异常:', error);
+    alert(`❌ 反馈失败: ${error.message}`);
+  }
+};
+
+// 确认提交负面反馈
+const handleNegativeFeedbackSubmit = async () => {
+  if (currentFeedbackIndex.value < 0) return;
+  
+  const message = messages.value[currentFeedbackIndex.value];
+  if (!message) {
+    console.error('[Feedback] 消息不存在');
+    return;
+  }
+  
+  console.log('[Feedback] 当前AI消息内容:', message.content);
+  console.log('[Feedback] 消息长度:', message.content?.length || 0);
+  
+  // 查找对应的用户消息
+  let userMessage = '';
+  for (let i = currentFeedbackIndex.value - 1; i >= 0; i--) {
+    const msg = messages.value[i];
+    if (msg && msg.role === 'user') {
+      userMessage = msg.content;
+      console.log('[Feedback] 找到用户消息:', userMessage);
+      break;
+    }
+  }
+  
+  if (!userMessage) {
+    console.error('[Feedback] 未找到对应的用户消息');
+    return;
+  }
+  
+  if (!message.content) {
+    console.error('[Feedback] AI消息内容为空！');
+    alert('❌ AI回复内容为空，无法提交反馈');
+    return;
+  }
+  
+  // 组合标签和评语
+  const feedbackType = feedbackTags.value.length > 0 ? feedbackTags.value.join('、') : '';
+  const finalComment = feedbackComment.value.trim();
+  
+  console.log('[Feedback] 准备提交:', {
+    feedbackType,
+    comment: finalComment,
+    userMessage: userMessage.substring(0, 30),
+    aiMessage: message.content.substring(0, 30)
+  });
+  
+  showFeedbackModal.value = false;
+  await submitFeedback(
+    currentFeedbackIndex.value,
+    userMessage,
+    message.content,
+    false,
+    feedbackType,  // 标签作为feedback_type
+    finalComment   // 评语作为comment
+  );
+};
+
+// 取消负面反馈
+const handleNegativeFeedbackCancel = () => {
+  showFeedbackModal.value = false;
+  feedbackComment.value = '';
+  feedbackTags.value = [];
+  currentFeedbackIndex.value = -1;
+};
+
+// 切换标签选择
+const toggleFeedbackTag = (tag: string) => {
+  const index = feedbackTags.value.indexOf(tag);
+  if (index > -1) {
+    feedbackTags.value.splice(index, 1);
+  } else {
+    feedbackTags.value.push(tag);
+  }
+};
+
 // 发送消息（统一使用 Workflow 接口）
 const handleSend = async () => {
   if (!canSend.value) return;
@@ -545,7 +894,8 @@ const handleWorkflowSend = async (userMessage: string, additionalState: any = {}
   const assistantMessageIndex = messages.value.length;
   messages.value.push({
     role: 'assistant',
-    content: ''
+    content: '',
+    feedbackStatus: 'none'  // 初始化反馈状态
   });
 
   isLoading.value = true;
@@ -685,7 +1035,9 @@ const loadChatHistory = async () => {
       // 构建完整消息列表：历史消息 + 分隔线 + 欢迎消息
       const historyMessages = response.messages.map(msg => ({
         role: msg.role,
-        content: msg.content
+        content: msg.content,
+        timestamp: msg.timestamp, // 映射时间戳用于后续时间校验
+        feedbackStatus: 'none' as const  // 使用 as const 明确类型
       }));
       
       messages.value = [
@@ -1017,23 +1369,25 @@ onMounted(async () => {
 .message-wrapper {
   display: flex;
   width: 100%;
+  flex-direction: column;  /* 添加：垂直排列消息和反馈按钮 */
 }
 
 .message-user {
-  justify-content: flex-end;
+  align-items: flex-end;  /* 用户消息右对齐 */
 }
 
 .message-assistant {
-  justify-content: flex-start;
+  align-items: flex-start;  /* AI消息左对齐 */
 }
 
 .message-bubble {
-  max-width: 50%;
+  max-width: 70%;  /* 增加最大宽度，从50%改为70% */
   padding: 12px 16px;
   border-radius: 12px;
   font-size: 14px;
   line-height: 1.6;
   word-wrap: break-word;
+  word-break: break-word;  /* 添加：英文单词换行 */
   position: relative;
 }
 
@@ -1369,5 +1723,134 @@ onMounted(async () => {
   font-size: 13px;
   color: #4caf50;
   line-height: 1.5;
+}
+
+/* 反馈按钮样式 */
+.feedback-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  padding-left: 0;
+}
+
+.feedback-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #e5e5e5;
+  background: #fff;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: #999;
+}
+
+.feedback-btn:hover:not(:disabled) {
+  border-color: #07c160;
+  background: #f0f9f4;
+  color: #07c160;
+}
+
+.feedback-btn.active {
+  border-color: #07c160;
+  background: #07c160;
+  color: #fff;
+}
+
+.feedback-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.feedback-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.feedback-status-label {
+  align-self: center;
+  font-size: 12px;
+  color: #999;
+}
+
+/* 反馈弹窗样式 */
+.feedback-modal {
+  max-width: 420px;
+}
+
+.feedback-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.feedback-tag {
+  padding: 8px 16px;
+  border: 1px solid #e5e5e5;
+  background: #fff;
+  border-radius: 20px;
+  font-size: 14px;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.feedback-tag:hover {
+  border-color: #07c160;
+  color: #07c160;
+}
+
+.feedback-tag.active {
+  border-color: #07c160;
+  background: #07c160;
+  color: #fff;
+}
+
+.feedback-textarea {
+  min-height: 100px;
+  margin-bottom: 0;
+}
+
+.char-count {
+  text-align: right;
+  font-size: 12px;
+  color: #999;
+  margin-top: 4px;
+}
+
+/* 反馈成功提示 */
+.feedback-success-toast {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
+  padding: 16px 24px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  z-index: 2000;
+  animation: fadeInOut 2s ease-in-out;
+}
+
+@keyframes fadeInOut {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -40%);
+  }
+  10%, 90% {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -60%);
+  }
 }
 </style>
