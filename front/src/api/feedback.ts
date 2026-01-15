@@ -6,7 +6,7 @@
 export interface CreateFeedbackRequest {
   conversation_id: string;
   is_useful: boolean;
-  feedback_type?: string;  // 新增：反馈类型（标签）
+  feedback_type?: string[];  // 反馈类型（标签数组）
   comment?: string;
   user_message: string;
   ai_response: string;
@@ -52,7 +52,7 @@ export async function createFeedback(
     const payload = {
       conversationId: params.conversation_id,
       isUseful: params.is_useful,
-      feedbackType: params.feedback_type ?? "",
+      feedbackType: params.feedback_type ?? [],
       comment: params.comment ?? "",
       userMessage: params.user_message,
       aiResponse: params.ai_response,

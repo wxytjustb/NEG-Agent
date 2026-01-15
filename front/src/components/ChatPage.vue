@@ -700,7 +700,7 @@ const handleFeedback = async (messageIndex: number, isUseful: boolean) => {
   
   if (isUseful) {
     // 点击"有用"：直接提交反馈
-    await submitFeedback(messageIndex, userMessage, message.content, true, 'helpful', '');
+    await submitFeedback(messageIndex, userMessage, message.content, true, ['helpful'], '');
   } else {
     // 点击"无用"：显示反馈表单
     currentFeedbackIndex.value = messageIndex;
@@ -716,13 +716,13 @@ const submitFeedback = async (
   userMsg: string,
   aiMsg: string,
   isUseful: boolean,
-  feedbackType: string,  // 新增：反馈类型
+  feedbackTypes: string[],  // 反馈类型数组
   comment: string
 ) => {
   try {
     console.log('[Feedback] 提交反馈:', {
       isUseful,
-      feedbackType,
+      feedbackTypes,
       userMessage: userMsg.substring(0, 50) + '...',
       aiResponse: aiMsg.substring(0, 50) + '...',
       comment
@@ -731,7 +731,7 @@ const submitFeedback = async (
     const feedbackParams: CreateFeedbackRequest = {
       conversation_id: conversationId.value,
       is_useful: isUseful,
-      feedback_type: feedbackType || undefined,  // 新增：反馈类型
+      feedback_type: (feedbackTypes && feedbackTypes.length > 0) ? feedbackTypes : undefined,
       comment: comment || undefined,
       user_message: userMsg,
       ai_response: aiMsg
@@ -811,11 +811,11 @@ const handleNegativeFeedbackSubmit = async () => {
   }
   
   // 组合标签和评语
-  const feedbackType = feedbackTags.value.length > 0 ? feedbackTags.value.join('、') : '';
+  const feedbackTypes = feedbackTags.value.slice();
   const finalComment = feedbackComment.value.trim();
   
   console.log('[Feedback] 准备提交:', {
-    feedbackType,
+    feedbackTypes,
     comment: finalComment,
     userMessage: userMessage.substring(0, 30),
     aiMessage: message.content.substring(0, 30)
@@ -827,7 +827,7 @@ const handleNegativeFeedbackSubmit = async () => {
     userMessage,
     message.content,
     false,
-    feedbackType,  // 标签作为feedback_type
+    feedbackTypes,  // 标签数组作为 feedback_type
     finalComment   // 评语作为comment
   );
 };

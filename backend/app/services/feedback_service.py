@@ -8,7 +8,7 @@
 import httpx
 import logging
 import json
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -44,7 +44,7 @@ class FeedbackService:
         conversation_id: str,
         user_id: Optional[str],
         is_useful: bool,
-        feedback_type: Optional[str],
+        feedback_type: Optional[List[str]],
         comment: Optional[str],
         user_message: str,
         ai_response: str,
@@ -70,14 +70,14 @@ class FeedbackService:
             # 新接口路径与字段
             url = f"{self.base_url}/app/ai_feedback/create"
 
-            # 基础字段按 CreateAiFeedbackRequest 要求
+            # 基础字段按 CreateAiFeedbackRequest 要求（feedbackType 为字符串数组）
             payload: Dict[str, Any] = {
                 "conversationId": conversation_id,
                 "isUseful": is_useful,
                 "comment": comment or "",
                 "userMessage": user_message,
                 "aiResponse": ai_response,
-                "feedbackType": feedback_type or "",
+                "feedbackType": feedback_type or [],
             }
 
 

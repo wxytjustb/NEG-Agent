@@ -12,8 +12,8 @@ class CreateFeedbackRequest(BaseModel):
 
     conversation_id: str = Field(..., alias="conversationId", description="对话ID")
     is_useful: bool = Field(..., alias="isUseful", description="是否有用")
-    feedback_type: Optional[str] = Field(
-        None, alias="feedbackType", description="反馈类型（标签，允许空字符串）"
+    feedback_type: Optional[List[str]] = Field(
+        default=None, alias="feedbackType", description="反馈类型标签数组（可选）"
     )
     comment: Optional[str] = Field(
         None, alias="comment", description="用户评语（允许空字符串）"
