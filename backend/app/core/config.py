@@ -1,10 +1,16 @@
 # 配置文件
+import os
+from pathlib import Path
 from pydantic_settings import BaseSettings
 from typing import Optional, List
+
+# 获取项目根目录
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 
 class Settings(BaseSettings):
     """应用配置类"""
+    
     
     # 应用基础配置
     APP_NAME: str = "Agent API"
@@ -88,20 +94,9 @@ class Settings(BaseSettings):
     ALIYUN_API_KEY: Optional[str] = None  # 阿里云 API Key
     ALIYUN_API_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"  # 阿里云 API Base URL
     ALIYUN_MODEL: str = "qwen-plus"  # 阿里云模型名称 (qwen-plus, qwen-turbo, qwen-max 等)
-
-    # ModelScope 配置（用于意图识别）
-    MODELSCOPE_API_BASE_URL: str = "https://ms-ens-aeba8b2a-0afa.api-inference.modelscope.cn/v1"
-    MODELSCOPE_API_KEY: Optional[str] = None  # ModelScope Token
-    MODELSCOPE_MODEL: str = "Qwen/Qwen3-0.6B"  # ModelScope 模型 ID
-
-    # 向量引擎 Embeddings 配置（用于意图识别）
-    VECTORENGINE_API_BASE_URL: str = "https://vectorengine.apifox.cn/v1"  # 向量引擎 API
-    VECTORENGINE_API_TOKEN: Optional[str] = None  # 向量引擎 Token
-    VECTORENGINE_EMBEDDING_MODEL: str = "qwen3-0.6b"  # 嵌入模型名称
-
     
     class Config:
-        env_file = ".env"
+        env_file = os.path.join(BASE_DIR, ".env")
         env_file_encoding = "utf-8"
         case_sensitive = True
         extra = "ignore"  # 忽略额外的环境变量，不报错

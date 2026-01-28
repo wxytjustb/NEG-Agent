@@ -47,8 +47,8 @@
             <div v-else class="message-text">{{ msg.content }}</div>
           </div>
           
-          <!-- 反馈按钮（仅AI回复显示） -->
-          <div v-if="msg.role === 'assistant' && msg.content && !isLoading && !msg.isWelcome" class="feedback-buttons">
+          <!-- 反馈按钮（仅AI回复显示，且排除系统通知） -->
+          <div v-if="msg.role === 'assistant' && msg.content && !isLoading && !msg.isWelcome && !msg.isSystemNotification && !msg.content.startsWith('✅') && !msg.content.startsWith('❌')" class="feedback-buttons">
             <button 
               class="feedback-btn"
               :class="{ active: msg.feedbackStatus === 'useful' }"
@@ -251,6 +251,7 @@ interface ChatMessage {
   feedbackStatus?: 'none' | 'useful' | 'not_useful' | 'submitted';  // 新增：反馈状态，submitted 表示历史已反馈
   userMessage?: string;  // 新增：对应的用户消息
   isWelcome?: boolean;  // 新增：是否是欢迎消息
+  isSystemNotification?: boolean;  // 新增：是否是系统通知（不显示反馈按钮）
 }
 
 // Session token management
@@ -621,7 +622,8 @@ const handleTicketFormSubmit = async () => {
       // 成功
       messages.value.push({
         role: 'assistant',
-        content: `✅ 工单创建成功！工单编号：${result.data?.id || '未知'}`
+        content: `✅ 工单创建成功！工单编号：${result.data?.id || '未知'}`,
+        isSystemNotification: true
       });
       showTicketForm.value = false;
       ticketFormData.value = {
@@ -633,7 +635,8 @@ const handleTicketFormSubmit = async () => {
       // 失败
       messages.value.push({
         role: 'assistant',
-        content: `❌ 工单创建失败：${result.msg || '未知错误'}`
+        content: `❌ 工单创建失败：${result.msg || '未知错误'}`,
+        isSystemNotification: true
       });
     }
     
@@ -643,7 +646,8 @@ const handleTicketFormSubmit = async () => {
     console.error('[TicketForm] 提交失败:', error);
     messages.value.push({
       role: 'assistant',
-      content: `❌ 工单提交失败：${error.message}`
+      content: `❌ 工单提交失败：${error.message}`,
+      isSystemNotification: true
     });
     scrollToBottom();
   } finally {

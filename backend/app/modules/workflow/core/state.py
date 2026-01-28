@@ -37,6 +37,12 @@ class WorkflowState(TypedDict, total=False):
     # ========== LLM 输出 ==========
     llm_response: str  # LLM 生成的回答
     
+    # ========== 工单相关 ==========
+    need_create_ticket: bool  # 是否需要创建工单
+    ticket_reason: str  # 工单判断理由
+    confirmation_message: str  # 工单确认消息
+    user_confirmed_ticket: bool  # 用户是否确认创建工单
+    
     # ========== 记忆保存状态 ==========
     memory_saved: bool  # ChromaDB 记忆是否保存成功
     working_memory_saved: bool  # Working Memory 是否保存成功

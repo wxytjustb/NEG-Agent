@@ -3,6 +3,9 @@ from typing import Dict, Any
 from app.modules.workflow.core.state import WorkflowState
 from app.modules.llm.core.llm_core import llm_core
 from app.utils.prompt import get_ticket_analysis_prompt
+from app.core.config import settings
+from langchain_openai import ChatOpenAI
+from pydantic import SecretStr
 from lmnr import observe
 import logging
 import json
@@ -69,9 +72,15 @@ async def async_ticket_analysis_node(state: WorkflowState):
         logger.info(f"🔍 开始分析是否需要创建工单... (意图: {intent})")
         
         # 调用 LLM 分析（使用同步调用，完全不产生流式事件）
-        llm = llm_core.create_llm(
+        # 注意：此处明确使用阿里云模型 (ALIYUN_MODEL) 进行分析，以获得更准确的中文语境理解
+        # 对于某些模型（如 DeepSeek-R1 等），非流式调用必须显式禁用 thinking
+        llm = ChatOpenAI(
+            model=settings.ALIYUN_MODEL,
+            api_key=SecretStr(settings.ALIYUN_API_KEY) if settings.ALIYUN_API_KEY else None,
+            base_url=settings.ALIYUN_API_BASE_URL,
             temperature=0.1,  # 低温度保证稳定输出
-            max_tokens=500
+            max_tokens=500,
+            model_kwargs={"extra_body": {"enable_thinking": False}}  # 显式禁用 thinking，通过 extra_body 传递
         )
         
         # 使用同步 invoke（在 async 函数中通过 run_in_executor 调用）
@@ -97,17 +106,26 @@ async def async_ticket_analysis_node(state: WorkflowState):
         
         try:
             # 尝试提取 JSON
-            json_match = re.search(r'\{.*"need_ticket".*\}', full_response, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(0)
-                result = json.loads(json_str)
-                
-                need_create_ticket = result.get('need_ticket', False)
-                ticket_reason = result.get('reason', '未提供理由')
-                
-                logger.info(f"✅ 工单判断完成: need_ticket={need_create_ticket}, reason={ticket_reason}")
-            else:
-                logger.warning("⚠️ 未找到 JSON 格式，默认不创建工单")
+            # 1. 移除 Markdown 代码块标记
+            cleaned_response = re.sub(r'```json\s*|\s*```', '', full_response).strip()
+            
+            # 2. 尝试直接解析
+            try:
+                result = json.loads(cleaned_response)
+            except json.JSONDecodeError:
+                # 3. 如果直接解析失败，尝试提取 {} 中的内容
+                json_match = re.search(r'\{.*\}', cleaned_response, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group(0)
+                    result = json.loads(json_str)
+                else:
+                    raise ValueError("无法在响应中找到有效的 JSON 对象")
+
+            need_create_ticket = result.get('need_ticket', False)
+            ticket_reason = result.get('reason', '未提供理由')
+            
+            logger.info(f"✅ 工单判断完成: need_ticket={need_create_ticket}, reason={ticket_reason}")
+
         except Exception as parse_error:
             logger.error(f"❌ JSON 解析失败: {str(parse_error)}，默认不创建工单")
         

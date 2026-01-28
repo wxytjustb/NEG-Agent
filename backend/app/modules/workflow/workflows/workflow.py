@@ -3,15 +3,13 @@ from app.modules.workflow.core.graph import WorkflowGraphBuilder
 from app.modules.workflow.core.state import WorkflowState
 from app.modules.workflow.nodes.Intent_recognition import detect_intent
 from app.modules.workflow.nodes.llm_answer import async_llm_stream_answer_node
-# 工单功能已移除，代码保留但不在工作流中使用
-# from app.modules.workflow.nodes.ticket_analysis import async_ticket_analysis_node, async_ask_user_confirmation_node
+from app.modules.workflow.nodes.ticket_analysis import async_ticket_analysis_node, async_ask_user_confirmation_node
 from app.modules.workflow.nodes.user_info import async_user_info_node  # 异步版本（支持 session 缓存）
 from app.modules.workflow.nodes.chromadb_node import get_memory_node, save_memory_node  # ChromaDB 记忆节点
 from app.modules.workflow.nodes.database_node import save_database_node  # MySQL 数据库节点
 from app.modules.workflow.nodes.working_memory import working_memory  # Working Memory 短期记忆节点
 from app.modules.workflow.nodes.feedback_node import async_feedback_node  # 用户反馈节点
 # from app.utils.greeting import check_and_respond_greeting, stream_greeting_response  # 问候语检测和回复（暂时禁用）
-# 删除：不再需要创建工单节点，前端直接调用 Golang 接口
 from typing import Dict, Any, Optional
 from lmnr import observe, Laminar
 import logging
@@ -142,28 +140,38 @@ def create_chat_workflow():
     builder.add_node("get_memory", get_memory_node)                        # 第3步：获取 ChromaDB 历史记忆（相似度检索）
     builder.add_node("get_feedback", async_feedback_node)                  # 第3步（并行）：获取用户反馈趋势
     builder.add_node("intent_recognition", intent_recognition_node)        # 第4步：意图识别
-    builder.add_node("llm_answer", async_llm_stream_answer_node)          # 第5步：LLM回答（异步流式）
-    builder.add_node("save_working_memory", save_to_working_memory_node)  # 第6步：保存到 Working Memory
-    builder.add_node("save_memory", save_memory_node)                     # 第7步：保存到 ChromaDB
-    builder.add_node("save_database", save_database_node)                 # 第8步：保存到 MySQL
-    
-    # 工单节点已移除（前端直接调用 Golang 接口）
-    # builder.add_node("ticket_analysis", async_ticket_analysis_node)
-    # builder.add_node("ask_user_confirmation", async_ask_user_confirmation_node)
+    builder.add_node("ticket_analysis", async_ticket_analysis_node)        # 第5步：工单分析（并行）
+    builder.add_node("llm_answer", async_llm_stream_answer_node)          # 第5步：LLM回答（并行）
+    builder.add_node("ask_user_confirmation", async_ask_user_confirmation_node) # 第6步：工单确认
+    builder.add_node("save_working_memory", save_to_working_memory_node)  # 第7步：保存到 Working Memory
+    builder.add_node("save_memory", save_memory_node)                     # 第8步：保存到 ChromaDB
+    builder.add_node("save_database", save_database_node)                 # 第9步：保存到 MySQL
     
     # 3. 设置入口节点
     builder.set_entry_point("user_info")  # 从用户信息获取开始
     
     # 4. 添加边（连接节点）
-    # 并行流程：用户信息 → (Working Memory + ChromaDB记忆 + 反馈趋势 并行) → 意图识别 → LLM对话 → 保存Working Memory → (ChromaDB + MySQL 并行保存) → 结束
+    # 并行流程：用户信息 → (Working Memory + ChromaDB记忆 + 反馈趋势 并行) → 意图识别 → (工单分析 + LLM对话 并行) → 工单确认 → 保存Working Memory → (ChromaDB + MySQL 并行保存) → 结束
     builder.add_edge("user_info", "get_working_memory")           # 用户信息 → Working Memory
     builder.add_edge("user_info", "get_memory")                   # 用户信息 → ChromaDB（并行）
     builder.add_edge("user_info", "get_feedback")                 # 用户信息 → 反馈趋势（并行）
+    
     builder.add_edge("get_working_memory", "intent_recognition")  # Working Memory → 意图识别
     builder.add_edge("get_memory", "intent_recognition")          # ChromaDB → 意图识别（三路汇聚）
     builder.add_edge("get_feedback", "intent_recognition")        # 反馈趋势 → 意图识别（三路汇聚）
+    
+    # 意图识别后，并行执行工单分析和 LLM 回答
+    builder.add_edge("intent_recognition", "ticket_analysis")     # 意图识别 → 工单分析
     builder.add_edge("intent_recognition", "llm_answer")          # 意图识别 → LLM对话
-    builder.add_edge("llm_answer", "save_working_memory")         # LLM对话 → 保存到 Working Memory
+    
+    # 关键修改：工单确认节点需要等待 LLM回答 和 工单分析 都完成后才执行
+    # 这样确保了 LLM 回答流式输出完毕，且工单判断结果已出，再向用户展示确认界面（前端数据）
+    builder.add_edge("ticket_analysis", "ask_user_confirmation")
+    builder.add_edge("llm_answer", "ask_user_confirmation")
+    
+    # 工单确认完成后，保存到 Working Memory
+    builder.add_edge("ask_user_confirmation", "save_working_memory")
+    
     builder.add_edge("save_working_memory", "save_memory")        # Working Memory → 保存到 ChromaDB
     builder.add_edge("save_working_memory", "save_database")      # Working Memory → 保存到 MySQL（并行）
     builder.add_edge("save_memory", END)                           # ChromaDB保存 → 结束
@@ -176,7 +184,7 @@ def create_chat_workflow():
     workflow = builder.compile()
     
     logger.info("✅ 对话工作流创建完成")
-    logger.info("工作流结构：用户信息 → [Working Memory + ChromaDB + 反馈趋势 并行] → 意图识别 → LLM对话 → 保存Working Memory → [ChromaDB + MySQL 并行保存] → 结束")
+    logger.info("工作流结构：用户信息 → [Working Memory + ChromaDB + 反馈趋势] → 意图识别 → [工单分析 + LLM对话] → 工单确认 → 保存Working Memory → [ChromaDB + MySQL] → 结束")
     
     return workflow
 
@@ -325,8 +333,17 @@ async def run_chat_workflow_streaming(
 
         logger.info(f"✅ 工作流完成: 事件数={event_count}, 流式输出={has_output}")
 
-        # 工单功能已移除，不再返回工单相关 state
-        # 前端直接调用 Golang 接口创建工单
+        # 如果有最终状态，并且包含工单相关信息，通过 SSE 发送给前端
+        if final_state:
+            import json
+            state_update = {}
+            if final_state.get("need_create_ticket"):
+                state_update["need_create_ticket"] = True
+                state_update["ticket_reason"] = final_state.get("ticket_reason", "")
+                # state_update["confirmation_message"] = final_state.get("confirmation_message", "") # 不发送确认消息文本，前端只显示 LLM 回答
+                
+                logger.info(f"📤 发送工单状态给前端: {state_update}")
+                yield f"[STATE] {json.dumps(state_update, ensure_ascii=False)}"
 
         # 兜底逻辑：仅在完全没有输出时触发
         if not has_output:
