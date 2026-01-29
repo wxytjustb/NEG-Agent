@@ -103,6 +103,9 @@ async def async_ticket_analysis_node(state: WorkflowState):
         # 解析 JSON 结果
         need_create_ticket = False
         ticket_reason = ""
+        problem_type = ""
+        facts = ""
+        user_appeal = ""
         
         try:
             # 尝试提取 JSON
@@ -123,6 +126,9 @@ async def async_ticket_analysis_node(state: WorkflowState):
 
             need_create_ticket = result.get('need_ticket', False)
             ticket_reason = result.get('reason', '未提供理由')
+            problem_type = result.get('problem_type', '')
+            facts = result.get('facts', '')
+            user_appeal = result.get('user_appeal', '')
             
             logger.info(f"✅ 工单判断完成: need_ticket={need_create_ticket}, reason={ticket_reason}")
 
@@ -131,7 +137,10 @@ async def async_ticket_analysis_node(state: WorkflowState):
         
         result = {
             "need_create_ticket": need_create_ticket,
-            "ticket_reason": ticket_reason
+            "ticket_reason": ticket_reason,
+            "problem_type": problem_type,
+            "facts": facts,
+            "user_appeal": user_appeal
         }
         logger.info(f"🔍 [ticket_analysis] 返回 State: {result}")
         return result
@@ -169,9 +178,21 @@ async def async_ask_user_confirmation_node(state: WorkflowState):
             # 构建确认消息
             confirmation_message = (
                 f"📝 检测到您可能需要维权帮助。\n\n"
-                f"原因：{ticket_reason}\n\n"
-                f"是否需要我帮您创建维权工单？"
+                f"原因：{ticket_reason}\n"
             )
+            
+            problem_type = state.get("problem_type")
+            facts = state.get("facts")
+            user_appeal = state.get("user_appeal")
+            
+            if problem_type:
+                confirmation_message += f"类型：{problem_type}\n"
+            if facts:
+                confirmation_message += f"事实：{facts}\n"
+            if user_appeal:
+                confirmation_message += f"诉求：{user_appeal}\n"
+                
+            confirmation_message += f"\n是否需要我帮您创建维权工单？"
             
             logger.info(f"❓ 需要询问用户确认: {confirmation_message[:50]}...")
             

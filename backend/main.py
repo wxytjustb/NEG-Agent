@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from app.api.agent import router as agent_router
 from app.api.conversation import router as conversation_router
 from app.api.feedback import router as feedback_router
+from app.api.ticket import router as ticket_router
 from app.initialize.redis import init_redis, close_redis
 from app.initialize.laminar import init_laminar
 from app.initialize.chromadb import init_chromadb, close_chromadb
@@ -70,6 +71,7 @@ app.add_middleware(
 app.include_router(agent_router)
 app.include_router(conversation_router)
 app.include_router(feedback_router)
+app.include_router(ticket_router)
 
 @app.get("/")
 def root():

@@ -40,6 +40,9 @@ class WorkflowState(TypedDict, total=False):
     # ========== 工单相关 ==========
     need_create_ticket: bool  # 是否需要创建工单
     ticket_reason: str  # 工单判断理由
+    problem_type: str  # 问题类型
+    facts: str  # 事实简要说明
+    user_appeal: str  # 用户诉求
     confirmation_message: str  # 工单确认消息
     user_confirmed_ticket: bool  # 用户是否确认创建工单
     

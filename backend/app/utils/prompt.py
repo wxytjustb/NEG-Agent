@@ -201,15 +201,28 @@ TICKET_ANALYSIS_PROMPT = """
 ## 输出格式
 
 请严格按照以下 JSON 格式回答（必须是有效的 JSON）：
-{{"need_ticket": true/false, "reason": "判断理由"}}
+{{
+    "need_ticket": true/false, 
+    "reason": "判断理由",
+    "problem_type": "问题类型",
+    "facts": "事实简要说明",
+    "user_appeal": "用户诉求描述"
+}}
 
-**need_ticket 判断**：
-- true：存在异常（权益问题/情绪风险/系统性困境任一成立）
-- false：无异常（所有条件都满足）或信息不足
-
-**reason 说明**：
-- 如果是 true：简要说明属于哪类异常，以及关键证据
-- 如果是 false：说明为什么不需要工单，或缺少哪些信息
+**字段说明**：
+1. **need_ticket**: 
+   - true：存在异常（权益问题/情绪风险/系统性困境任一成立）
+   - false：无异常（所有条件都满足）或信息不足
+2. **reason**: 
+   - 如果 true：简要说明属于哪类异常，以及关键证据
+   - 如果 false：说明为什么不需要工单，或缺少哪些信息
+3. **problem_type**: 仅当 need_ticket 为 true 时填写，必须是以下之一：
+   - "法律咨询"：涉及合同违约、欠薪、工伤等法律问题
+   - "心理咨询"：涉及情绪崩溃、高压、绝望等心理问题
+   - "投诉建议"：涉及平台规则不合理、系统问题、流程优化等
+   - 如果 need_ticket 为 false，请返回 null 或 ""
+4. **facts**: 仅当 need_ticket 为 true 时填写，简要概括用户遇到的客观事实（发生了什么），50字以内。如果 false，返回 null 或 ""。
+5. **user_appeal**: 仅当 need_ticket 为 true 时填写，概括用户的核心诉求（想要什么），30字以内。如果 false，返回 null 或 ""。
 
 只返回 JSON，不要其他内容。
 """

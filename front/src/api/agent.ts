@@ -89,6 +89,7 @@ export interface ConversationListItem {
   last_assistant_message: string | null;
   message_count: number;
   created_at: string | null;
+  ticketStatus?: string; // 工单状态
 }
 
 // 会话列表响应

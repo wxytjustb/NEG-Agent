@@ -103,6 +103,9 @@
           >
             <div class="history-item-title">
               {{ conv.first_user_message || '无标题' }}
+              <span v-if="conv.ticketStatus" class="ticket-status-badge" :class="conv.ticketStatus">
+                {{ formatTicketStatus(conv.ticketStatus) }}
+              </span>
             </div>
             <div class="history-item-preview">
               {{ conv.last_assistant_message || '' }}
@@ -116,20 +119,57 @@
       </div>
     </div>
 
+    <!-- 工单详情展示 (置顶) -->
+    <div v-if="!showHistoryList && currentTicket" class="ticket-detail-card">
+      <div class="ticket-detail-header">
+        <span class="ticket-id">工单 #{{ currentTicket.id }}</span>
+        <span class="ticket-status" :class="currentTicket.status">{{ formatTicketStatus(currentTicket.status) }}</span>
+      </div>
+      <div class="ticket-detail-content">
+        <div class="ticket-field">
+          <span class="label">类型:</span>
+          <span class="value">{{ currentTicket.issueType || '未知' }}</span>
+        </div>
+        <div class="ticket-field">
+          <span class="label">平台:</span>
+          <span class="value">{{ currentTicket.platform || '未知' }}</span>
+        </div>
+        <div class="ticket-field">
+          <span class="label">诉求:</span>
+          <span class="value">{{ currentTicket.userRequest || '无' }}</span>
+        </div>
+        <div class="ticket-field">
+          <span class="label">事实:</span>
+          <span class="value">{{ currentTicket.briefFacts || '无' }}</span>
+        </div>
+        <div class="ticket-field">
+          <span class="label">人数:</span>
+          <span class="value">{{ currentTicket.peopleNeedingHelp ? (typeof currentTicket.peopleNeedingHelp === 'boolean' ? '多人' : currentTicket.peopleNeedingHelp) : '单人' }}</span>
+        </div>
+        <div class="ticket-field">
+          <span class="label">时间:</span>
+          <span class="value">{{ currentTicket.createdAt ? new Date(currentTicket.createdAt).toLocaleString() : '未知' }}</span>
+        </div>
+        <div class="ticket-notice">
+          ⚠️ 此会话已关联工单，AI对话功能已禁用。请等待人工处理。
+        </div>
+      </div>
+    </div>
+
     <!-- 输入框 -->
     <div class="chat-input-wrapper" v-show="!showHistoryList">
       <textarea
         v-model="inputText"
         class="chat-input"
-        placeholder="发送消息..."
+        :placeholder="currentTicket ? '此会话已转为工单，无法继续对话' : '发送消息...'"
         rows="1"
         @keydown.enter.exact.prevent="handleSend"
-        :disabled="isLoading"
+        :disabled="isLoading || !!currentTicket"
       ></textarea>
       <button
         class="send-btn"
-        :class="{ disabled: !canSend }"
-        :disabled="!canSend"
+        :class="{ disabled: !canSend || !!currentTicket }"
+        :disabled="!canSend || !!currentTicket"
         @click="handleSend"
       >
         {{ isLoading ? '发送中...' : '发送' }}
@@ -140,15 +180,36 @@
     <div v-if="showTicketConfirmation" class="ticket-modal-overlay" @click.self="handleTicketReject">
       <div class="ticket-modal">
         <div class="ticket-modal-header">
-          <h3>📝 维权工单确认</h3>
+          <!-- <h3>📝 维权工单确认</h3> -->
         </div>
         <div class="ticket-modal-body">
-          <p class="ticket-reason">{{ ticketReason }}</p>
-          <p class="ticket-question">是否需要我帮您创建维权工单？</p>
+          <p class="ticket-question">接下来将有人工志愿者为您提供分析与处理建议。您也可以选择您期望的帮助类型。</p>
+          
+          <div class="help-type-options">
+             <button 
+               v-for="type in ['权益咨询', '心理疏导', '同行帮助']" 
+               :key="type"
+               class="help-type-btn"
+               :class="{ active: selectedHelpType === type }"
+               @click="selectedHelpType = type"
+             >
+               {{ type }}
+             </button>
+          </div>
+
+          <div class="volunteer-count-section">
+             <span class="volunteer-label">申请协助人数:</span>
+             <div class="volunteer-counter">
+                <button class="counter-btn" @click="volunteerCount = Math.max(1, volunteerCount - 1)">-</button>
+                <span class="counter-value">{{ volunteerCount }}</span>
+                <button class="counter-btn" @click="volunteerCount++">+</button>
+             </div>
+          </div>
+
         </div>
         <div class="ticket-modal-footer">
           <button class="ticket-btn ticket-btn-cancel" @click="handleTicketReject">不用了</button>
-          <button class="ticket-btn ticket-btn-confirm" @click="handleTicketConfirm">好的，创建工单</button>
+          <button class="ticket-btn ticket-btn-confirm" @click="handleTicketConfirm">申请{{ volunteerCount }}位志愿者协助</button>
         </div>
       </div>
     </div>
@@ -161,24 +222,47 @@
         </div>
         <div class="ticket-modal-body">
           <div class="form-group">
-            <label class="form-label">问题描述：</label>
+            <label class="form-label">问题类型：</label>
+            <div class="help-type-options small-options">
+               <button 
+                 v-for="type in ['权益咨询', '心理疏导', '同行帮助']" 
+                 :key="type"
+                 class="help-type-btn"
+                 :class="{ active: ticketFormData.issueType === type }"
+                 @click="ticketFormData.issueType = type"
+               >
+                 {{ type }}
+               </button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">涉事平台：</label>
+            <input 
+              v-model="ticketFormData.platform" 
+              type="text" 
+              class="form-input" 
+              placeholder="请输入涉事平台名称"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">事实简要说明：</label>
             <textarea 
-              v-model="ticketFormData.content" 
+              v-model="ticketFormData.briefFacts" 
               class="form-textarea" 
-              rows="6" 
-              placeholder="请描述您遇到的问题..."
+              rows="4" 
+              placeholder="请简要描述您遇到的问题事实..."
             ></textarea>
           </div>
           <div class="form-group">
-            <label class="form-label">联系方式：</label>
-            <input 
-              v-model="ticketFormData.contact" 
-              type="text" 
-              class="form-input" 
-              placeholder="请输入您的电话或微信"
-            />
+            <label class="form-label">用户诉求描述：</label>
+            <textarea 
+              v-model="ticketFormData.userRequest" 
+              class="form-textarea" 
+              rows="3" 
+              placeholder="请描述您的具体诉求..."
+            ></textarea>
           </div>
-          <p class="form-hint">ℹ️ AI 已为您提取了问题描述，您可以进行修改</p>
+          <p class="form-hint">ℹ️ AI 已为您提取了部分信息，您可以进行修改</p>
         </div>
         <div class="ticket-modal-footer">
           <button class="ticket-btn ticket-btn-cancel" @click="handleTicketFormCancel">取消</button>
@@ -244,6 +328,7 @@
 import { ref, computed, nextTick, onMounted } from 'vue';
 import { initSession, getSessionHistory, createConversationId, getConversationList } from '../api/agent';
 import { createFeedback, getFeedbackByConversation } from '../api/feedback';
+import { getTicketList } from '../api/ticket';
 import type { ConversationListItem } from '../api/agent';
 import type { CreateFeedbackRequest } from '../api/feedback';
 
@@ -273,18 +358,26 @@ const provider = ref<'deepseek'>('deepseek');  // 固定为 deepseek
 const inputText = ref('');
 const isLoading = ref(false);
 const messagesContainer = ref<HTMLElement | null>(null);
+const currentTicket = ref<any>(null); // 当前会话关联的工单
 
 // 工单确认弹窗相关状态
 const showTicketConfirmation = ref(false);  // 是否显示确认弹窗
 const ticketReason = ref('');  // 工单创建原因
+const ticketFacts = ref('');   // 工单事实（AI分析）
+const ticketUserAppeal = ref(''); // 工单诉求（AI分析）
+const ticketPlatform = ref(''); // 涉事平台（AI分析/用户公司）
 const pendingUserInput = ref('');  // 待处理的用户输入
+const selectedHelpType = ref('权益咨询'); // 默认选中
+const volunteerCount = ref(1); // 默认 1 位志愿者
 
 // 工单表单相关状态
 const showTicketForm = ref(false);  // 是否显示表单弹窗
 const isSubmittingTicket = ref(false);  // 是否正在提交工单
 const ticketFormData = ref({
-  content: '',  // 问题描述
-  contact: '',  // 联系方式
+  issueType: '', // 问题类型
+  platform: '', // 涉事平台
+  briefFacts: '',  // 事实简要说明
+  userRequest: '', // 用户诉求描述
   images: [] as string[]  // 图片列表
 });
 
@@ -297,7 +390,9 @@ const feedbackTags = ref<string[]>([]);  // 选中的反馈标签
 
 // 是否可以提交工单
 const canSubmitTicket = computed(() => {
-  return ticketFormData.value.content.trim().length > 0 && !isSubmittingTicket.value;
+  return ticketFormData.value.briefFacts.trim().length > 0 && 
+         ticketFormData.value.userRequest.trim().length > 0 && 
+         !isSubmittingTicket.value;
 });
 
 // 消息列表（初始显示欢迎消息）
@@ -366,15 +461,74 @@ const loadHistoryList = async () => {
     isLoadingHistory.value = true;
     console.log('[History] 开始加载历史列表...');
     
-    const response = await getConversationList(sessionToken.value);
-    console.log('[History] 完整响应:', response);
-    
-    if (response.code === 200) {
-      conversationList.value = response.data.conversations;
+    const [convResponse, ticketRes] = await Promise.all([
+      getConversationList(sessionToken.value),
+      getTicketList(sessionToken.value, 1, 100).catch(e => {
+        console.error('[History] 获取工单列表失败:', e);
+        return { code: 500, msg: '获取失败', data: { items: [] } };
+      })
+    ]);
+
+    console.log('[History] 会话列表响应:', convResponse);
+    console.log('[History] 工单列表响应:', ticketRes);
+
+    if (convResponse.code === 200) {
+      let conversations = convResponse.data.conversations;
+
+      // 匹配工单状态
+      let ticketItems: any[] = [];
+      // 处理 BaseResponse 结构 { code, msg, data: { items: [] } }
+      if (ticketRes && ticketRes.code === 200 && ticketRes.data) {
+        if (Array.isArray(ticketRes.data.items)) {
+          ticketItems = ticketRes.data.items;
+        } else if (Array.isArray(ticketRes.data.list)) {
+          ticketItems = ticketRes.data.list;
+        }
+      } 
+      // 兼容直接返回列表/分页对象的情况 (后端目前似乎返回 { list: [], total: ... })
+      else if (ticketRes) {
+        if (Array.isArray(ticketRes.items)) {
+          ticketItems = ticketRes.items;
+        } else if (Array.isArray(ticketRes.list)) {
+          ticketItems = ticketRes.list;
+        } else if (Array.isArray(ticketRes)) {
+          ticketItems = ticketRes;
+        }
+      }
+
+      console.log('[History] 解析出的工单项:', ticketItems.length);
+
+      if (ticketItems.length > 0) {
+        const ticketMap = new Map();
+        ticketItems.forEach(t => {
+          // 兼容 conversationId (camelCase) 和 conversation_id (snake_case)
+          const cId = t.conversationId || t.conversation_id;
+          if (cId) {
+            const key = String(cId);
+            const currentStatus = ticketMap.get(key);
+            // 优先显示未结束的状态 (pending, processing)
+            // 如果当前没有状态，或者当前状态是已结束但新状态是未结束，则更新
+            // 或者简单的逻辑：覆盖更新，假设最新的工单在后面？或者工单列表按时间倒序？
+            // 简单起见，只要匹配到就设置，或者保留"处理中"的状态
+            ticketMap.set(key, t.status);
+          }
+        });
+        
+        conversations = conversations.map((c: any) => {
+          const status = ticketMap.get(String(c.conversation_id));
+          return {
+            ...c,
+            ticketStatus: status
+          };
+        });
+        console.log('[History] 工单状态匹配完成，匹配数量:', ticketMap.size);
+      }
+
+      conversationList.value = conversations;
       console.log('[History] 历史列表加载成功，共', conversationList.value.length, '条记录');
     } else {
-      console.error('[History] 加载失败 | code:', response.code, '| msg:', response.msg);
-      alert('❌ 加载失败: ' + (response.msg || '未知错误'));
+      console.error('[History] 加载失败 | code:', convResponse.code, '| msg:', convResponse.msg);
+      alert('❌ 加载失败: ' + (convResponse.msg || '未知错误'));
     }
   } catch (error: any) {
     console.error('[History] 加载异常:', error);
@@ -498,6 +652,38 @@ const loadConversation = async (convId: string) => {
       console.warn('[History] 查询会话反馈失败(不影响聊天):', e);
     }
 
+    // 6. 检查是否存在工单，如果存在则加载详情并禁用AI
+    currentTicket.value = null; // 重置工单信息
+    try {
+      console.log('[History] 检查会话工单:', convId);
+      const ticketRes = await getTicketList(sessionToken.value, 1, 10, convId);
+      
+      let tickets: any[] = [];
+      if (ticketRes && ticketRes.code === 200 && ticketRes.data) {
+         if (Array.isArray(ticketRes.data.items)) {
+           tickets = ticketRes.data.items;
+         } else if (Array.isArray(ticketRes.data.list)) {
+           tickets = ticketRes.data.list;
+         }
+      } else if (ticketRes) {
+        if (Array.isArray(ticketRes.items)) {
+          tickets = ticketRes.items;
+        } else if (Array.isArray(ticketRes.list)) {
+          tickets = ticketRes.list;
+        } else if (Array.isArray(ticketRes)) {
+          tickets = ticketRes;
+        }
+      }
+
+      if (tickets.length > 0) {
+        // 假设一个会话只对应一个最新的工单
+        currentTicket.value = tickets[0];
+        console.log('[History] 找到关联工单:', currentTicket.value);
+      }
+    } catch (e) {
+      console.warn('[History] 获取工单详情失败:', e);
+    }
+
     console.log('[History] ✅ 会话切换完成，可以继续对话');
     
   } catch (error: any) {
@@ -524,15 +710,31 @@ const formatTime = (timeStr: string | null): string => {
   }
 };
 
+// 格式化工单状态
+const formatTicketStatus = (status: string): string => {
+  const map: Record<string, string> = {
+    'pending': '处理中',
+    'processing': '处理中',
+    'closed': '已解决',
+    'rejected': '已关闭'
+  };
+  return map[status] || status;
+};
+
 // 工单确认处理
 const handleTicketConfirm = () => {
-  console.log('[Ticket] 用户确认创建工单');
+  console.log('[Ticket] 用户确认创建工单', {
+    type: selectedHelpType.value,
+    count: volunteerCount.value
+  });
   showTicketConfirmation.value = false;
   
   // 直接显示工单表单，让用户填写详细信息
   ticketFormData.value = {
-    content: ticketReason.value,  // 使用 AI 分析的理由作为初始内容
-    contact: '',  // 用户手动填写联系方式
+    issueType: selectedHelpType.value, // 使用选中的类型
+    platform: ticketPlatform.value, // 默认使用分析出的平台
+    briefFacts: ticketFacts.value || ticketReason.value,  // 优先使用事实描述，没有则使用理由
+    userRequest: ticketUserAppeal.value || `请求${volunteerCount.value}位志愿者协助`, // 优先使用用户诉求，没有则使用模板
     images: []
   };
   
@@ -540,7 +742,7 @@ const handleTicketConfirm = () => {
   showTicketForm.value = true;
   
   pendingUserInput.value = '';
-  ticketReason.value = '';
+  // ticketReason.value = ''; // 保留理由给表单使用
 };
 
 const handleTicketReject = () => {
@@ -548,6 +750,9 @@ const handleTicketReject = () => {
   showTicketConfirmation.value = false;
   pendingUserInput.value = '';
   ticketReason.value = '';
+  ticketFacts.value = '';
+  ticketUserAppeal.value = '';
+  ticketPlatform.value = '';
 };
 
 // 工单表单处理
@@ -555,11 +760,15 @@ const handleTicketFormCancel = () => {
   console.log('[TicketForm] 用户取消编辑');
   showTicketForm.value = false;
   ticketFormData.value = {
-    content: '',
-    contact: '',
+    issueType: '',
+    platform: '',
+    briefFacts: '',
+    userRequest: '',
     images: []
   };
 };
+
+import { createTicket, AppTicket } from '../api/ticket';
 
 const handleTicketFormSubmit = async () => {
   if (!canSubmitTicket.value) return;
@@ -568,71 +777,48 @@ const handleTicketFormSubmit = async () => {
     isSubmittingTicket.value = true;
     console.log('[TicketForm] 开始提交工单:', ticketFormData.value);
     
-    // 获取 access_token（优先从 URL，其次从 localStorage）
-    const urlParams = new URLSearchParams(window.location.search);
-    let accessToken = urlParams.get('access_token');
-    
-    if (!accessToken) {
-      accessToken = localStorage.getItem('access_token');
+    if (!sessionToken.value) {
+      throw new Error('未找到会话信息，请刷新页面重试');
     }
     
-    if (!accessToken) {
-      throw new Error('未找到用户认证信息，请确保 URL 中包含 access_token 参数');
+    // 构建 AppTicket 请求数据
+    // 将 images 合并到 briefFacts 中
+    const factsParts = [ticketFormData.value.briefFacts];
+    if (ticketFormData.value.images.length > 0) {
+      factsParts.push(`\n\n图片: ${ticketFormData.value.images.join(',')}`);
     }
     
-    console.log('[TicketForm] 使用 access_token:', accessToken.substring(0, 20) + '...');
-    
-    // 构建请求数据（将 images 数组转为字符串）
-    const requestData = {
-      content: ticketFormData.value.content,
-      contact: ticketFormData.value.contact,
-      images: ticketFormData.value.images.join(',')  // ✅ 数组转字符串
+    const requestData: AppTicket = {
+      issueType: ticketFormData.value.issueType || selectedHelpType.value, // 优先使用表单中的类型
+      platform: ticketFormData.value.platform, // 使用表单中的平台
+      briefFacts: factsParts.join(''),
+      userRequest: ticketFormData.value.userRequest,
+      peopleNeedingHelp: volunteerCount.value > 1, // 如果大于1人，则标记为多人求助
+      conversationId: conversationId.value || undefined,
+      status: "pending"
     };
     
     console.log('[TicketForm] 请求数据:', requestData);
     
-    // 直接调用 Golang 接口（使用 Vite 代理，避免 CORS 问题）
-    const response = await fetch('/app/help/postHelpRequest', {
-      method: 'POST',
-      headers: {
-        'x-token': accessToken,  // 使用 x-token 而不是 Authorization
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(requestData)  // ✅ 使用处理后的数据
-    });
+    // 调用 API 接口
+    const result = await createTicket(sessionToken.value, requestData);
     
-    console.log('[TicketForm] 响应状态码:', response.status);
-    console.log('[TicketForm] 响应头:', Object.fromEntries(response.headers.entries()));
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('[TicketForm] HTTP 错误响应:', errorText);
-      throw new Error(`HTTP ${response.status}: ${errorText}`);
-    }
-    
-    const responseText = await response.text();
-    console.log('[TicketForm] 原始响应内容:', responseText);
-    
-    let result;
-    try {
-      result = responseText ? JSON.parse(responseText) : {};
-    } catch (e) {
-      console.error('[TicketForm] JSON 解析失败:', e);
-      throw new Error(`响应不是有效的 JSON: ${responseText}`);
-    }
     console.log('[TicketForm] 工单创建结果:', result);
     
-    if (result.code === 200 || result.code === 0) {
+    // 判断是否成功 (code === 0)
+    if (result && (result.code === 0 || result.code === 200)) {
       // 成功
       messages.value.push({
         role: 'assistant',
-        content: `✅ 工单创建成功！工单编号：${result.data?.id || '未知'}`,
+        content: `✅ 工单创建成功！${result.msg || ''}`,
         isSystemNotification: true
       });
       showTicketForm.value = false;
       ticketFormData.value = {
-        content: '',
-        contact: '',
+        issueType: '',
+        platform: '',
+        briefFacts: '',
+        userRequest: '',
         images: []
       };
     } else {
@@ -1005,6 +1191,9 @@ const handleWorkflowSend = async (userMessage: string, additionalState: any = {}
     if (workflowState.need_create_ticket === true && !additionalState.user_confirmed_ticket) {
       console.log('[Ticket] 检测到需要创建工单，显示确认弹窗');
       ticketReason.value = workflowState.ticket_reason || '检测到您可能需要维权帮助。';
+      ticketFacts.value = workflowState.facts || '';
+      ticketUserAppeal.value = workflowState.user_appeal || '';
+      ticketPlatform.value = workflowState.company || '';
       pendingUserInput.value = userMessage;
       showTicketConfirmation.value = true;
     }
@@ -1343,6 +1532,7 @@ onMounted(async () => {
   padding: 12px;
   cursor: pointer;
   transition: all 0.2s;
+  position: relative; /* 添加相对定位，用于放置状态标签 */
 }
 
 .history-item:hover {
@@ -1358,6 +1548,34 @@ onMounted(async () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  padding-right: 60px; /* 为状态标签留出空间 */
+}
+
+.ticket-status-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #f0f0f0;
+  color: #999;
+}
+
+.ticket-status-badge.pending,
+.ticket-status-badge.processing {
+  background: #fff0f0;
+  color: #f56c6c;
+}
+
+.ticket-status-badge.closed {
+  background: #f0f9eb;
+  color: #67c23a;
+}
+
+.ticket-status-badge.rejected {
+  background: #f4f4f5;
+  color: #909399;
 }
 
 .history-item-preview {
@@ -1584,6 +1802,85 @@ onMounted(async () => {
 }
 
 /* 工单确认弹窗 */
+/* 帮助类型按钮 */
+.help-type-options {
+  display: flex;
+  gap: 12px;
+  margin: 16px 0;
+  justify-content: center;
+}
+
+.help-type-options.small-options {
+  justify-content: flex-start;
+  margin: 0;
+}
+
+.help-type-btn {
+  padding: 8px 16px;
+  border: 1px solid #e5e5e5;
+  background: #fff;
+  color: #666;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.help-type-btn.active {
+  background: #07c160;
+  color: #fff;
+  border-color: #07c160;
+}
+
+/* 志愿者人数计数器 */
+.volunteer-count-section {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.volunteer-label {
+  font-size: 14px;
+  color: #333;
+}
+
+.volunteer-counter {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #f5f5f5;
+  padding: 4px 12px;
+  border-radius: 6px;
+}
+
+.counter-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: #333;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.counter-btn:hover {
+  color: #07c160;
+}
+
+.counter-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+  min-width: 20px;
+  text-align: center;
+}
+
 .ticket-modal-overlay {
   position: fixed;
   top: 0;
@@ -1890,5 +2187,99 @@ onMounted(async () => {
     opacity: 0;
     transform: translate(-50%, -60%);
   }
+}
+/* 工单状态标签 */
+.ticket-status-badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 8px;
+  font-weight: normal;
+  vertical-align: middle;
+}
+
+.ticket-status-badge.pending,
+.ticket-status-badge.processing {
+  background-color: #e6f7ff;
+  color: #1890ff;
+  border: 1px solid #91d5ff;
+}
+
+.ticket-status-badge.closed {
+  background-color: #f6ffed;
+  color: #52c41a;
+  border: 1px solid #b7eb8f;
+}
+
+.ticket-status-badge.rejected {
+  background-color: #fff1f0;
+  color: #f5222d;
+  border: 1px solid #ffa39e;
+}
+
+/* 工单详情卡片 */
+.ticket-detail-card {
+  margin: 16px;
+  background: #fff;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.ticket-detail-header {
+  padding: 12px 16px;
+  background: #f9f9f9;
+  border-bottom: 1px solid #e5e5e5;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ticket-id {
+  font-weight: 600;
+  color: #333;
+}
+
+.ticket-status {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.ticket-status.pending, .ticket-status.processing { background: #e6f7ff; color: #1890ff; border: 1px solid #91d5ff; }
+.ticket-status.closed { background: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; }
+.ticket-status.rejected { background: #fff1f0; color: #f5222d; border: 1px solid #ffa39e; }
+
+.ticket-detail-content {
+  padding: 16px;
+}
+
+.ticket-field {
+  margin-bottom: 8px;
+  display: flex;
+}
+
+.ticket-field .label {
+  color: #999;
+  width: 50px;
+  flex-shrink: 0;
+}
+
+.ticket-field .value {
+  color: #333;
+  flex: 1;
+}
+
+.ticket-notice {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: #fffbe6;
+  border: 1px solid #ffe58f;
+  border-radius: 4px;
+  color: #faad14;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
 }
 </style>

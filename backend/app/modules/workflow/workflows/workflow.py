@@ -340,7 +340,10 @@ async def run_chat_workflow_streaming(
             if final_state.get("need_create_ticket"):
                 state_update["need_create_ticket"] = True
                 state_update["ticket_reason"] = final_state.get("ticket_reason", "")
-                # state_update["confirmation_message"] = final_state.get("confirmation_message", "") # 不发送确认消息文本，前端只显示 LLM 回答
+                state_update["problem_type"] = final_state.get("problem_type", "")
+                state_update["facts"] = final_state.get("facts", "")
+                state_update["user_appeal"] = final_state.get("user_appeal", "")
+                state_update["company"] = final_state.get("company", "")
                 
                 logger.info(f"📤 发送工单状态给前端: {state_update}")
                 yield f"[STATE] {json.dumps(state_update, ensure_ascii=False)}"
