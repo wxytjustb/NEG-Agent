@@ -144,7 +144,7 @@
         </div>
         <div class="ticket-field">
           <span class="label">人数:</span>
-          <span class="value">{{ currentTicket.peopleNeedingHelp ? (typeof currentTicket.peopleNeedingHelp === 'boolean' ? '多人' : currentTicket.peopleNeedingHelp) : '单人' }}</span>
+          <span class="value">{{ formatPeopleCount(currentTicket.peopleNeedingHelp) }}</span>
         </div>
         <div class="ticket-field">
           <span class="label">时间:</span>
@@ -200,9 +200,9 @@
           <div class="volunteer-count-section">
              <span class="volunteer-label">申请协助人数:</span>
              <div class="volunteer-counter">
-                <button class="counter-btn" @click="volunteerCount = Math.max(1, volunteerCount - 1)">-</button>
+                <button class="counter-btn" :disabled="volunteerCount <= 1" @click="volunteerCount = Math.max(1, volunteerCount - 1)">-</button>
                 <span class="counter-value">{{ volunteerCount }}</span>
-                <button class="counter-btn" @click="volunteerCount++">+</button>
+                <button class="counter-btn" :disabled="volunteerCount >= 3" @click="volunteerCount = Math.min(3, volunteerCount + 1)">+</button>
              </div>
           </div>
 
@@ -721,6 +721,18 @@ const formatTicketStatus = (status: string): string => {
   return map[status] || status;
 };
 
+// 格式化人数
+const formatPeopleCount = (val: any): string => {
+  if (typeof val === 'number') {
+    return val + '人';
+  }
+  const num = Number(val);
+  if (!isNaN(num) && val !== null && val !== undefined && val !== '') {
+    return num + '人';
+  }
+  return '1人'; // 默认值或无法解析时显示1人
+};
+
 // 工单确认处理
 const handleTicketConfirm = () => {
   console.log('[Ticket] 用户确认创建工单', {
@@ -793,7 +805,7 @@ const handleTicketFormSubmit = async () => {
       platform: ticketFormData.value.platform, // 使用表单中的平台
       briefFacts: factsParts.join(''),
       userRequest: ticketFormData.value.userRequest,
-      peopleNeedingHelp: volunteerCount.value > 1, // 如果大于1人，则标记为多人求助
+      peopleNeedingHelp: volunteerCount.value, // 发送具体人数
       conversationId: conversationId.value || undefined,
       status: "pending"
     };
@@ -1195,6 +1207,7 @@ const handleWorkflowSend = async (userMessage: string, additionalState: any = {}
       ticketUserAppeal.value = workflowState.user_appeal || '';
       ticketPlatform.value = workflowState.company || '';
       pendingUserInput.value = userMessage;
+      volunteerCount.value = 1; // 默认人数重置为1
       showTicketConfirmation.value = true;
     }
     
@@ -1869,7 +1882,13 @@ onMounted(async () => {
   padding: 0;
 }
 
-.counter-btn:hover {
+.counter-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  color: #999;
+}
+
+.counter-btn:hover:not(:disabled) {
   color: #07c160;
 }
 

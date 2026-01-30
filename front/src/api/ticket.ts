@@ -10,7 +10,7 @@ export interface AppTicket {
   platform?: string;
   briefFacts?: string;
   userRequest?: string;
-  peopleNeedingHelp?: boolean;
+  peopleNeedingHelp?: number;
   conversationId?: string;
   status: string;
   handlerId?: number;
