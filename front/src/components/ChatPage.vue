@@ -150,6 +150,22 @@
           <span class="label">时间:</span>
           <span class="value">{{ currentTicket.createdAt ? new Date(currentTicket.createdAt).toLocaleString() : '未知' }}</span>
         </div>
+        
+        <!-- 志愿者分配信息 -->
+        <div v-if="currentVolunteers.length > 0" class="ticket-field volunteers-section">
+          <span class="label">志愿者:</span>
+          <div class="volunteers-list">
+             <div v-for="vol in currentVolunteers" :key="vol.ID" class="volunteer-item">
+               <span class="volunteer-name">{{ vol.volunteerUser?.realname || vol.volunteerUser?.nickname || '志愿者' }}</span>
+               <span class="volunteer-type" v-if="vol.volunteerUser?.volunteerServiceType">({{ vol.volunteerUser.volunteerServiceType }})</span>
+             </div>
+          </div>
+        </div>
+        <div v-else-if="['processing', 'pending'].includes(currentTicket.status)" class="ticket-field">
+           <span class="label">志愿者:</span>
+           <span class="value loading-text">正在分配中...</span>
+        </div>
+
         <div class="ticket-notice">
           ⚠️ 此会话已关联工单，AI对话功能已禁用。请等待人工处理。
         </div>
@@ -332,6 +348,8 @@ import { getTicketList } from '../api/ticket';
 import type { ConversationListItem } from '../api/agent';
 import type { CreateFeedbackRequest } from '../api/feedback';
 
+import { getVolunteersByTicketAndConversation, TicketVolunteer } from '../api/ticket_volunteer';
+
 // 消息类型（扩展支持分隔线）
 interface ChatMessage {
   role: 'user' | 'assistant' | 'system' | 'divider';
@@ -357,8 +375,11 @@ const title = ref('AI 助手');
 const provider = ref<'deepseek'>('deepseek');  // 固定为 deepseek
 const inputText = ref('');
 const isLoading = ref(false);
+
 const messagesContainer = ref<HTMLElement | null>(null);
 const currentTicket = ref<any>(null); // 当前会话关联的工单
+const currentVolunteers = ref<TicketVolunteer[]>([]);
+const isFetchingVolunteers = ref(false);
 
 // 工单确认弹窗相关状态
 const showTicketConfirmation = ref(false);  // 是否显示确认弹窗
@@ -654,43 +675,118 @@ const loadConversation = async (convId: string) => {
 
     // 6. 检查是否存在工单，如果存在则加载详情并禁用AI
     currentTicket.value = null; // 重置工单信息
-    try {
-      console.log('[History] 检查会话工单:', convId);
-      const ticketRes = await getTicketList(sessionToken.value, 1, 10, convId);
-      
-      let tickets: any[] = [];
-      if (ticketRes && ticketRes.code === 200 && ticketRes.data) {
-         if (Array.isArray(ticketRes.data.items)) {
-           tickets = ticketRes.data.items;
-         } else if (Array.isArray(ticketRes.data.list)) {
-           tickets = ticketRes.data.list;
-         }
-      } else if (ticketRes) {
-        if (Array.isArray(ticketRes.items)) {
-          tickets = ticketRes.items;
-        } else if (Array.isArray(ticketRes.list)) {
-          tickets = ticketRes.list;
-        } else if (Array.isArray(ticketRes)) {
-          tickets = ticketRes;
+    
+    // 异步执行工单检查，避免阻塞界面切换
+    getTicketList(sessionToken.value, 1, 10, convId).then(async (ticketRes) => {
+      try {
+        console.log('[History] 检查会话工单:', convId);
+        
+        let tickets: any[] = [];
+        if (ticketRes && ticketRes.code === 200 && ticketRes.data) {
+           if (Array.isArray(ticketRes.data.items)) {
+             tickets = ticketRes.data.items;
+           } else if (Array.isArray(ticketRes.data.list)) {
+             tickets = ticketRes.data.list;
+           }
+        } else if (ticketRes) {
+          if (Array.isArray(ticketRes.items)) {
+            tickets = ticketRes.items;
+          } else if (Array.isArray(ticketRes.list)) {
+            tickets = ticketRes.list;
+          } else if (Array.isArray(ticketRes)) {
+            tickets = ticketRes;
+          }
         }
-      }
 
-      if (tickets.length > 0) {
-        // 假设一个会话只对应一个最新的工单
-        currentTicket.value = tickets[0];
-        console.log('[History] 找到关联工单:', currentTicket.value);
+        if (tickets.length > 0) {
+          // 找到当前会话的工单
+          const match = tickets.find(t => t.conversationId === convId || t.conversation_id === convId);
+          if (match) {
+            console.log('[History] 找到关联工单:', match);
+            // 规范化工单字段，兼容 Go 后端 PascalCase
+            currentTicket.value = {
+              ...match,
+              id: match.id || match.ID,
+              createdAt: match.createdAt || match.CreatedAt,
+              updatedAt: match.updatedAt || match.UpdatedAt
+            };
+            // 加载志愿者信息 (异步)
+            fetchVolunteers().catch(e => console.error('[History] 加载志愿者失败:', e));
+          }
+        }
+      } catch (e) {
+        console.error('[History] 处理工单数据失败:', e);
       }
-    } catch (e) {
-      console.warn('[History] 获取工单详情失败:', e);
-    }
+    }).catch(e => {
+      console.error('[History] 获取工单列表失败:', e);
+    });
 
     console.log('[History] ✅ 会话切换完成，可以继续对话');
-    
-  } catch (error: any) {
-    console.error('[History] 加载会话失败:', error);
-    alert('❌ 加载失败: ' + error.message);
+
+  } catch (error) {
+    console.error('[Load] 加载会话详情失败:', error);
+    // 即使失败，也至少显示消息
+    // messages.value = ...
+  } finally {
+    isLoading.value = false;
   }
 };
+
+// 获取志愿者列表
+const fetchVolunteers = async () => {
+  if (!currentTicket.value || !conversationId.value) {
+    console.warn('[TicketVolunteer] 无法获取志愿者: 缺少工单信息或会话ID', { 
+      hasTicket: !!currentTicket.value, 
+      ticketId: currentTicket.value?.id || currentTicket.value?.ID,
+      conversationId: conversationId.value 
+    });
+    return;
+  }
+  
+  const ticketId = currentTicket.value.id || currentTicket.value.ID;
+
+  isFetchingVolunteers.value = true;
+  try {
+    console.log('[TicketVolunteer] 开始获取志愿者:', { 
+      ticketId: ticketId, 
+      conversationId: conversationId.value 
+    });
+    
+    const res = await getVolunteersByTicketAndConversation(
+      sessionToken.value,
+      ticketId,
+      conversationId.value
+    );
+    
+    console.log('[TicketVolunteer] 获取结果:', res);
+
+    if ((res.code === 200 || res.code === 0) && res.data) {
+      if (Array.isArray(res.data.list)) {
+        currentVolunteers.value = res.data.list;
+      } else if (Array.isArray(res.data)) {
+        // 兼容直接返回数组的情况
+        currentVolunteers.value = res.data;
+      } else {
+        currentVolunteers.value = [];
+        console.warn('[TicketVolunteer] 响应数据格式不符:', res.data);
+      }
+      console.log('[TicketVolunteer] 更新志愿者列表:', currentVolunteers.value);
+    } else {
+      currentVolunteers.value = [];
+      console.log('[TicketVolunteer] 志愿者列表为空或格式不符');
+    }
+  } catch (e) {
+    console.error('[TicketVolunteer] 获取志愿者失败', e);
+    currentVolunteers.value = [];
+  } finally {
+    isFetchingVolunteers.value = false;
+  }
+};
+
+
+
+
+
 
 // 格式化时间
 const formatTime = (timeStr: string | null): string => {
@@ -2272,17 +2368,57 @@ onMounted(async () => {
 
 .ticket-detail-content {
   padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .ticket-field {
-  margin-bottom: 8px;
+  margin-bottom: 0;
   display: flex;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .ticket-field .label {
-  color: #999;
-  width: 50px;
+  color: #64748b;
+  width: 40px;
   flex-shrink: 0;
+}
+
+.volunteers-section {
+  align-items: flex-start;
+}
+
+.volunteers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.volunteer-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background-color: #f0fdf4;
+  color: #166534;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.volunteer-name {
+  font-weight: 500;
+}
+
+.volunteer-type {
+  color: #15803d;
+  font-size: 11px;
+}
+
+.loading-text {
+  color: #64748b;
+  font-style: italic;
 }
 
 .ticket-field .value {
