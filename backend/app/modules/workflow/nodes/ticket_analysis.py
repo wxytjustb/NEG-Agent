@@ -104,6 +104,7 @@ async def async_ticket_analysis_node(state: WorkflowState):
         need_create_ticket = False
         ticket_reason = ""
         problem_type = ""
+        title = ""
         facts = ""
         user_appeal = ""
         
@@ -127,6 +128,7 @@ async def async_ticket_analysis_node(state: WorkflowState):
             need_create_ticket = result.get('need_ticket', False)
             ticket_reason = result.get('reason', '未提供理由')
             problem_type = result.get('problem_type', '')
+            title = result.get('title', '')
             facts = result.get('facts', '')
             user_appeal = result.get('user_appeal', '')
             
@@ -139,6 +141,7 @@ async def async_ticket_analysis_node(state: WorkflowState):
             "need_create_ticket": need_create_ticket,
             "ticket_reason": ticket_reason,
             "problem_type": problem_type,
+            "title": title,
             "facts": facts,
             "user_appeal": user_appeal
         }

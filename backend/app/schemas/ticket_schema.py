@@ -5,6 +5,7 @@ from datetime import datetime
 class AppTicket(BaseModel):
     """工单模型"""
     id: Optional[int] = Field(None, description="工单ID")
+    title: Optional[str] = Field(None, alias="title", description="工单标题")
     app_user_id: Optional[int] = Field(None, alias="appUserId", description="用户ID")
     issue_type: Optional[str] = Field(None, alias="issueType", description="问题类型: 法律咨询/心理咨询/投诉建议")
     platform: Optional[str] = Field(None, alias="platform", description="涉及的平台或设施")

@@ -5,6 +5,7 @@
  */
 export interface AppTicket {
   id?: number;
+  title?: string;
   appUserId?: number;
   issueType?: string;
   platform?: string;

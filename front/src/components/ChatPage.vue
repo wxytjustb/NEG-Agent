@@ -238,6 +238,15 @@
         </div>
         <div class="ticket-modal-body">
           <div class="form-group">
+            <label class="form-label">工单标题：</label>
+            <input 
+              v-model="ticketFormData.title" 
+              type="text" 
+              class="form-input" 
+              placeholder="请输入工单标题"
+            />
+          </div>
+          <div class="form-group">
             <label class="form-label">问题类型：</label>
             <div class="help-type-options small-options">
                <button 
@@ -386,6 +395,7 @@ const showTicketConfirmation = ref(false);  // 是否显示确认弹窗
 const ticketReason = ref('');  // 工单创建原因
 const ticketFacts = ref('');   // 工单事实（AI分析）
 const ticketUserAppeal = ref(''); // 工单诉求（AI分析）
+const ticketTitle = ref(''); // 工单标题（AI分析）
 const ticketPlatform = ref(''); // 涉事平台（AI分析/用户公司）
 const pendingUserInput = ref('');  // 待处理的用户输入
 const selectedHelpType = ref('权益咨询'); // 默认选中
@@ -395,6 +405,7 @@ const volunteerCount = ref(1); // 默认 1 位志愿者
 const showTicketForm = ref(false);  // 是否显示表单弹窗
 const isSubmittingTicket = ref(false);  // 是否正在提交工单
 const ticketFormData = ref({
+  title: '', // 工单标题
   issueType: '', // 问题类型
   platform: '', // 涉事平台
   briefFacts: '',  // 事实简要说明
@@ -837,8 +848,31 @@ const handleTicketConfirm = () => {
   });
   showTicketConfirmation.value = false;
   
+  // 自动生成标题
+  let autoTitle = '';
+  
+  // 优先使用 AI 生成的标题
+  if (ticketTitle.value) {
+    autoTitle = ticketTitle.value;
+  } else {
+    // 降级：手动组合标题
+    if (ticketPlatform.value) {
+      autoTitle += ticketPlatform.value;
+    }
+    if (ticketUserAppeal.value) {
+      if (autoTitle) autoTitle += ' - ';
+      // 截取前15个字符
+      const appealSummary = ticketUserAppeal.value.length > 15 ? ticketUserAppeal.value.substring(0, 15) + '...' : ticketUserAppeal.value;
+      autoTitle += appealSummary;
+    } else {
+      if (autoTitle) autoTitle += ' - ';
+      autoTitle += selectedHelpType.value;
+    }
+  }
+
   // 直接显示工单表单，让用户填写详细信息
   ticketFormData.value = {
+    title: autoTitle,
     issueType: selectedHelpType.value, // 使用选中的类型
     platform: ticketPlatform.value, // 默认使用分析出的平台
     briefFacts: ticketFacts.value || ticketReason.value,  // 优先使用事实描述，没有则使用理由
@@ -868,6 +902,7 @@ const handleTicketFormCancel = () => {
   console.log('[TicketForm] 用户取消编辑');
   showTicketForm.value = false;
   ticketFormData.value = {
+    title: '',
     issueType: '',
     platform: '',
     briefFacts: '',
@@ -897,6 +932,7 @@ const handleTicketFormSubmit = async () => {
     }
     
     const requestData: AppTicket = {
+      title: ticketFormData.value.title,
       issueType: ticketFormData.value.issueType || selectedHelpType.value, // 优先使用表单中的类型
       platform: ticketFormData.value.platform, // 使用表单中的平台
       briefFacts: factsParts.join(''),
@@ -923,6 +959,7 @@ const handleTicketFormSubmit = async () => {
       });
       showTicketForm.value = false;
       ticketFormData.value = {
+        title: '',
         issueType: '',
         platform: '',
         briefFacts: '',
@@ -1301,6 +1338,7 @@ const handleWorkflowSend = async (userMessage: string, additionalState: any = {}
       ticketReason.value = workflowState.ticket_reason || '检测到您可能需要维权帮助。';
       ticketFacts.value = workflowState.facts || '';
       ticketUserAppeal.value = workflowState.user_appeal || '';
+      ticketTitle.value = workflowState.title || '';
       ticketPlatform.value = workflowState.company || '';
       pendingUserInput.value = userMessage;
       volunteerCount.value = 1; // 默认人数重置为1
