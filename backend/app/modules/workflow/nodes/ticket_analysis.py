@@ -36,7 +36,12 @@ async def async_ticket_analysis_node(state: WorkflowState):
     try:
         user_input = state.get("user_input", "")
         llm_response = state.get("llm_response", "")
-        history_text = state.get("history_text", "")
+        # 优先使用 working_memory_text (Redis短期记忆)，如果为空则尝试 history_text (ChromaDB记忆)
+        wm_text = state.get("working_memory_text")
+        logger.info(f"🔍 [ticket_analysis] working_memory_text length: {len(wm_text) if wm_text else 0}")
+        logger.info(f"🔍 [ticket_analysis] working_memory_text content preview: {wm_text[:50] if wm_text else 'None'}")
+        
+        history_text = wm_text or state.get("history_text", "")
         
         # 获取意图识别结果
         intent = state.get("intent", "")

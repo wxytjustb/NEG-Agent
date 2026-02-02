@@ -24,7 +24,8 @@ def intent_recognition_node(state: WorkflowState) -> Dict[str, Any]:
     
     try:
         user_input = state.get("user_input", "")
-        history_text = state.get("history_text", "")
+        # 优先使用 working_memory_text (Redis短期记忆)
+        history_text = state.get("working_memory_text") or state.get("history_text", "")
         
         logger.info(f"用户输入: {user_input[:50]}...")
         logger.info(f"历史上下文: {len(history_text)} 字符")
@@ -183,7 +184,7 @@ def create_chat_workflow():
     # 6. 编译图
     workflow = builder.compile()
     
-    logger.info("✅ 对话工作流创建完成")
+    logger.info("✅ 对话工作流创建完成 (Updated)")
     logger.info("工作流结构：用户信息 → [Working Memory + ChromaDB + 反馈趋势] → 意图识别 → [工单分析 + LLM对话] → 工单确认 → 保存Working Memory → [ChromaDB + MySQL] → 结束")
     
     return workflow

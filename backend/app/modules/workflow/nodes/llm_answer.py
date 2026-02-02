@@ -20,12 +20,14 @@ async def async_llm_stream_answer_node(state: WorkflowState, config: Optional[Ru
         company = state.get("company", "未知")
         age = state.get("age", "未知")
         gender = state.get("gender", "未知")
-        history_text = state.get("history_text", "")  # 最近5条历史消息
+        history_text = state.get("history_text", "")  # ChromaDB 历史消息
+        working_memory_text = state.get("working_memory_text", "")  # Redis 短期记忆
         similar_messages = state.get("similar_messages", "")  # 相似度较高的消息
         feedback_summary = state.get("feedback_summary", "")  # 用户反馈趋势摘要
         
         full_prompt = build_full_prompt(
             user_input=user_input,
+            working_memory_text=working_memory_text,  # 传入 working_memory_text
             history_text=history_text,
             similar_messages=similar_messages,
             company=company,
