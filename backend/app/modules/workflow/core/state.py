@@ -40,7 +40,8 @@ class WorkflowState(TypedDict, total=False):
     # ========== 工单相关 ==========
     need_create_ticket: bool  # 是否需要创建工单
     ticket_reason: str  # 工单判断理由
-    problem_type: str  # 问题类型
+    problem_type: str  # 问题类型（二级分类）
+    ticket_parent_category: str  # 工单一级分类（用于表单提交匹配）
     title: str # 工单标题
     facts: str  # 事实简要说明
     user_appeal: str  # 用户诉求
@@ -56,3 +57,18 @@ class WorkflowState(TypedDict, total=False):
     
     # ========== 错误处理 ==========
     error: Optional[str]  # 错误信息（如果有）
+
+
+def format_workflow_state(state: WorkflowState) -> Dict[str, Any]:
+    """格式化工作流状态，确保包含所有字段（缺失字段填充为 None）
+    
+    Args:
+        state: 当前工作流状态
+        
+    Returns:
+        包含所有字段的字典
+    """
+    full_state = {}
+    for field_name in WorkflowState.__annotations__:
+        full_state[field_name] = state.get(field_name, None)
+    return full_state

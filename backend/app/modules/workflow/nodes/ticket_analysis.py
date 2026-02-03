@@ -1,8 +1,9 @@
 # 工单判断节点 - 分析是否需要创建工单
 from typing import Dict, Any
-from app.modules.workflow.core.state import WorkflowState
+from app.modules.workflow.core.state import WorkflowState, format_workflow_state
 from app.modules.llm.core.llm_core import llm_core
 from app.utils.prompt import get_ticket_analysis_prompt
+from app.services.ticket_service import ticket_service
 from app.core.config import settings
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
@@ -65,13 +66,50 @@ async def async_ticket_analysis_node(state: WorkflowState):
         else:
             intent_info = "当前意图：未识别"
         
+        # 获取服务分类，用于动态填充 Prompt
+        access_token = state.get("access_token")
+        category_options = "权益咨询/心理疏导/同行帮助"  # 默认兜底值（与前端保持一致）
+        level2_to_level1_map = {}  # Map Level 2 Name -> Level 1 Name
+        
+        if access_token:
+            try:
+                categories_data = await ticket_service.get_volunteer_service_categories(access_token)
+                if categories_data and (categories_data.get("code") == 0 or categories_data.get("code") == 200):
+                     categories = categories_data.get("data", [])
+                     if categories:
+                         level2_names = []
+                         for cat_l1 in categories:
+                             l1_name = cat_l1.get("name")
+                             # 尝试获取子分类，兼容 children 或 subCategories
+                             children = cat_l1.get("children") or cat_l1.get("subCategories") or []
+                             
+                             if children:
+                                 for cat_l2 in children:
+                                     l2_name = cat_l2.get("name")
+                                     if l2_name:
+                                         level2_names.append(l2_name)
+                                         if l1_name:
+                                             level2_to_level1_map[l2_name] = l1_name
+                             else:
+                                 # 如果没有子分类，尝试直接使用一级分类
+                                 if l1_name:
+                                     level2_names.append(l1_name)
+                                     level2_to_level1_map[l1_name] = l1_name
+
+                         if level2_names:
+                             category_options = "/".join(level2_names)
+                             logger.info(f"Using dynamic categories for prompt: {category_options}")
+            except Exception as e:
+                logger.error(f"Failed to fetch categories for prompt: {e}")
+
         # 构建分析 Prompt
         ticket_prompt_template = get_ticket_analysis_prompt()
         analysis_prompt = ticket_prompt_template.format(
             history=history_text if history_text else "（这是新对话的开始）",
             user_input=user_input,
             llm_response=llm_response,
-            intent_info=intent_info  # 新增：意图信息
+            intent_info=intent_info,  # 新增：意图信息
+            category_options=category_options
         )
         
         logger.info(f"🔍 开始分析是否需要创建工单... (意图: {intent})")
@@ -133,24 +171,47 @@ async def async_ticket_analysis_node(state: WorkflowState):
             need_create_ticket = result.get('need_ticket', False)
             ticket_reason = result.get('reason', '未提供理由')
             problem_type = result.get('problem_type', '')
+            company = result.get('company', '')
             title = result.get('title', '')
             facts = result.get('facts', '')
             user_appeal = result.get('user_appeal', '')
             
-            logger.info(f"✅ 工单判断完成: need_ticket={need_create_ticket}, reason={ticket_reason}")
+            logger.info(f"✅ 工单判断完成: need_ticket={need_create_ticket}, reason={ticket_reason}, company={company}")
 
         except Exception as parse_error:
             logger.error(f"❌ JSON 解析失败: {str(parse_error)}，默认不创建工单")
         
+        # 尝试匹配一级分类
+        ticket_parent_category = ""
+        if need_create_ticket and problem_type:
+            ticket_parent_category = level2_to_level1_map.get(problem_type, "")
+            if ticket_parent_category:
+                logger.info(f"Matched ticket category: {ticket_parent_category} -> {problem_type}")
+            else:
+                logger.warning(f"Could not find parent category for: {problem_type}")
+
         result = {
             "need_create_ticket": need_create_ticket,
             "ticket_reason": ticket_reason,
             "problem_type": problem_type,
+            "ticket_parent_category": ticket_parent_category,
+            "company": company if 'company' in locals() else "",
             "title": title,
             "facts": facts,
             "user_appeal": user_appeal
         }
-        logger.info(f"🔍 [ticket_analysis] 返回 State: {result}")
+        
+        # 🐛 [DEBUG] 打印完整 State 信息
+        logger.info("=" * 60)
+        logger.info("🐛 [ticket_analysis] FULL STATE DUMP:")
+        try:
+            # 使用 format_workflow_state 确保打印所有字段
+            logger.info(json.dumps(format_workflow_state(state), ensure_ascii=False, indent=2, default=str))
+        except Exception:
+            # 降级打印
+            logger.info(state)
+        logger.info("=" * 60)
+        
         return result
         
     except Exception as e:

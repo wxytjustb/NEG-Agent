@@ -106,6 +106,29 @@ class TicketService:
             
         return None
 
+    async def get_volunteer_service_categories(self, access_token: str) -> Dict[str, Any]:
+        """获取志愿者服务类型列表"""
+        url = f"{self.base_url}/app/volunteerServiceCategory/list"
+        
+        headers = {
+            "x-token": access_token
+        }
+        
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.get(url, headers=headers)
+                
+                if response.status_code == 200:
+                    resp_json = response.json()
+                    return resp_json
+                else:
+                    logger.error(f"Get categories failed with status {response.status_code}: {response.text}")
+                    return {"code": response.status_code, "msg": f"HTTP Error {response.status_code}", "data": None}
+                    
+        except Exception as e:
+            logger.error(f"Error getting categories: {e}", exc_info=True)
+            return {"code": 500, "msg": str(e), "data": None}
+
     async def update_ticket_status(self, ticket_id: int, status: str, access_token: str) -> bool:
         """更新工单状态"""
         url = f"{self.base_url}/app/ticket/updateTicketStatus"

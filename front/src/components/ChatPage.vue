@@ -873,7 +873,7 @@ const handleTicketConfirm = () => {
   // 直接显示工单表单，让用户填写详细信息
   ticketFormData.value = {
     title: autoTitle,
-    issueType: selectedHelpType.value, // 使用选中的类型
+    issueType: workflowState.problem_type || selectedHelpType.value, // 优先使用二级标签 (problem_type)，否则使用一级
     platform: ticketPlatform.value, // 默认使用分析出的平台
     briefFacts: ticketFacts.value || ticketReason.value,  // 优先使用事实描述，没有则使用理由
     userRequest: ticketUserAppeal.value || `请求${volunteerCount.value}位志愿者协助`, // 优先使用用户诉求，没有则使用模板
@@ -933,7 +933,8 @@ const handleTicketFormSubmit = async () => {
     
     const requestData: AppTicket = {
       title: ticketFormData.value.title,
-      issueType: ticketFormData.value.issueType || selectedHelpType.value, // 优先使用表单中的类型
+      // issueType 优先使用二级标签 (workflowState.problem_type)，如果为空则使用一级标签
+      issueType: ticketFormData.value.issueType || selectedHelpType.value,
       platform: ticketFormData.value.platform, // 使用表单中的平台
       briefFacts: factsParts.join(''),
       userRequest: ticketFormData.value.userRequest,
@@ -943,6 +944,7 @@ const handleTicketFormSubmit = async () => {
     };
     
     console.log('[TicketForm] 请求数据:', requestData);
+    console.log('[TicketForm] 最终提交的 issueType:', requestData.issueType);
     
     // 调用 API 接口
     const result = await createTicket(sessionToken.value, requestData);
@@ -1340,6 +1342,33 @@ const handleWorkflowSend = async (userMessage: string, additionalState: any = {}
       ticketUserAppeal.value = workflowState.user_appeal || '';
       ticketTitle.value = workflowState.title || '';
       ticketPlatform.value = workflowState.company || '';
+      
+      // 自动选择一级标题
+      // 重置为默认值，防止保留上一次的选择
+      selectedHelpType.value = '权益咨询';
+      
+      if (workflowState.ticket_parent_category) {
+        console.log('[Ticket] 收到后端一级标题:', workflowState.ticket_parent_category);
+        
+        const validTypes = ['权益咨询', '心理疏导', '同行帮助'];
+        const incoming = workflowState.ticket_parent_category;
+        
+        // 1. 精确匹配
+        let match = validTypes.find(t => t === incoming);
+        
+        // 2. 如果没有精确匹配，尝试模糊匹配 (包含关系)
+        if (!match) {
+           match = validTypes.find(t => t.includes(incoming) || incoming.includes(t));
+        }
+        
+        if (match) {
+          console.log('[Ticket] 自动锁定一级标题:', match);
+          selectedHelpType.value = match;
+        } else {
+          console.warn('[Ticket] 无法匹配一级标题，保持默认:', incoming);
+        }
+      }
+      
       pendingUserInput.value = userMessage;
       volunteerCount.value = 1; // 默认人数重置为1
       showTicketConfirmation.value = true;

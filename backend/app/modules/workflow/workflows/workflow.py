@@ -1,6 +1,6 @@
 from langgraph.graph import END  # type: ignore
 from app.modules.workflow.core.graph import WorkflowGraphBuilder
-from app.modules.workflow.core.state import WorkflowState
+from app.modules.workflow.core.state import WorkflowState, format_workflow_state
 from app.modules.workflow.nodes.Intent_recognition import detect_intent
 from app.modules.workflow.nodes.llm_answer import async_llm_stream_answer_node
 from app.modules.workflow.nodes.ticket_analysis import async_ticket_analysis_node, async_ask_user_confirmation_node
@@ -22,6 +22,16 @@ def intent_recognition_node(state: WorkflowState) -> Dict[str, Any]:
     """意图识别节点 - 基于用户输入分析意图"""
     logger.info("========== 意图识别节点开始 ===========")
     
+    # 🐛 [DEBUG] 打印完整 State 信息
+    logger.info("=" * 60)
+    logger.info("🐛 [intent_recognition] FULL STATE DUMP:")
+    try:
+        import json
+        logger.info(json.dumps(format_workflow_state(state), ensure_ascii=False, indent=2, default=str))
+    except Exception:
+        logger.info(state)
+    logger.info("=" * 60)
+    
     try:
         user_input = state.get("user_input", "")
         # 优先使用 working_memory_text (Redis短期记忆)
@@ -41,12 +51,23 @@ def intent_recognition_node(state: WorkflowState) -> Dict[str, Any]:
             logger.info(f"🔀 检测到混合意图: {intents}")
         
         # 返回更新的状态
-        return {
+        result = {
             "intent": intent,
             "intent_confidence": confidence,
             "intent_scores": all_scores,
             "intents": intents
         }
+
+        # 🐛 [DEBUG] 打印输出 State 信息
+        logger.info("=" * 60)
+        logger.info("🐛 [intent_recognition] OUTPUT STATE UPDATE:")
+        try:
+            logger.info(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+        except Exception:
+            logger.info(result)
+        logger.info("=" * 60)
+        
+        return result
         
     except Exception as e:
         error_msg = f"意图识别节点执行失败: {str(e)}"
@@ -331,6 +352,16 @@ async def run_chat_workflow_streaming(
             if event_type == "on_chain_end" and event.get("name") == "LangGraph":
                 final_state = event.get("data", {}).get("output")
                 logger.info("✅ 捕获到工作流最终状态")
+                
+                # 🐛 [DEBUG] 打印最终 State 信息
+                logger.info("=" * 60)
+                logger.info("🐛 [workflow] FINAL STATE DUMP:")
+                try:
+                    import json
+                    logger.info(json.dumps(format_workflow_state(final_state), ensure_ascii=False, indent=2, default=str))
+                except Exception:
+                    logger.info(final_state)
+                logger.info("=" * 60)
 
         logger.info(f"✅ 工作流完成: 事件数={event_count}, 流式输出={has_output}")
 
@@ -346,6 +377,7 @@ async def run_chat_workflow_streaming(
                 state_update["facts"] = final_state.get("facts", "")
                 state_update["user_appeal"] = final_state.get("user_appeal", "")
                 state_update["company"] = final_state.get("company", "")
+                state_update["ticket_parent_category"] = final_state.get("ticket_parent_category", "")
                 
                 logger.info(f"📤 发送工单状态给前端: {state_update}")
                 yield f"[STATE] {json.dumps(state_update, ensure_ascii=False)}"

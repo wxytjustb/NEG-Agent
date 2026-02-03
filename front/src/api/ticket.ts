@@ -46,6 +46,17 @@ export interface BaseResponse {
 }
 
 /**
+ * 服务分类节点
+ */
+export interface ServiceCategory {
+  id: number;
+  code: string;
+  name: string;
+  level: number;
+  children?: ServiceCategory[];
+}
+
+/**
  * 创建工单
  * @param sessionToken 会话Token
  * @param ticket 工单信息
@@ -123,6 +134,31 @@ export async function getTicketList(
     }
   } catch (error) {
     console.error('[Ticket] 获取列表失败:', error);
+    throw error;
+  }
+}
+
+/**
+ * 获取志愿者服务类型列表
+ * @param sessionToken 会话Token
+ * @returns Promise<any>
+ */
+export async function getVolunteerServiceCategories(
+  sessionToken: string
+): Promise<BaseResponse> {
+  try {
+    const response = await fetch(`/api/ticket/getVolunteerServiceCategories?session_token=${sessionToken}`);
+    
+    if (!response.ok) {
+       if (response.status === 401) {
+        throw new Error('会话已过期，请刷新页面');
+      }
+      throw new Error(`获取服务类型失败: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('[Ticket] 获取服务类型失败:', error);
     throw error;
   }
 }
