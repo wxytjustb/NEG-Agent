@@ -108,7 +108,7 @@ class TicketService:
 
     async def get_volunteer_service_categories(self, access_token: str) -> Dict[str, Any]:
         """获取志愿者服务类型列表"""
-        url = f"{self.base_url}/app/volunteerServiceCategory/list"
+        url = f"{self.base_url}/app/volunteer/getServiceCategories"
         
         headers = {
             "x-token": access_token

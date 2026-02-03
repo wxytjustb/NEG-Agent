@@ -123,52 +123,6 @@ async def get_volunteer_service_categories(
         raise HTTPException(status_code=500, detail=f"获取服务分类失败: {str(e)}")
 
 
-@router.get("/getVolunteerServiceCategories", response_model=BaseResponse)
-async def get_volunteer_service_categories(
-    user: dict = Depends(get_current_session)
-):
-    """
-    获取志愿者服务类型列表
-    """
-    try:
-        access_token = user.get("access_token")
-        
-        if not access_token:
-            raise HTTPException(status_code=401, detail="未找到认证信息")
-            
-        result = await ticket_service.get_volunteer_service_categories(access_token)
-        return result
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"获取服务类型列表失败: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"获取服务类型列表失败: {str(e)}")
-
-
-@router.get("/getServiceCategories", response_model=BaseResponse)
-async def get_service_categories(
-    user: dict = Depends(get_current_session)
-):
-    """
-    获取服务分类列表
-    """
-    try:
-        access_token = user.get("access_token")
-        
-        if not access_token:
-            raise HTTPException(status_code=401, detail="未找到认证信息")
-            
-        result = await ticket_service.get_service_categories(access_token)
-        return result
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"获取服务分类列表失败: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"获取服务分类列表失败: {str(e)}")
-
-
 @router.post("/updateTicketStatus")
 async def update_ticket_status(
     request: UpdateTicketStatusRequest,
