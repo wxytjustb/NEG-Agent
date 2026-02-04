@@ -3,6 +3,7 @@ import httpx
 import logging
 from app.core.config import settings
 from app.schemas.ticket_schema import AppTicket
+from app.utils.prompt import TICKET_KEYWORDS
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +13,22 @@ class TicketService:
     def __init__(self):
         self.base_url = settings.GOLANG_API_BASE_URL
         self.timeout = 10.0
+
+    def check_ticket_needed(self, text: str) -> List[str]:
+        """
+        快速判断是否需要创建工单，返回匹配到的关键词列表
+        :param text: 用户输入文本
+        :return: List[str] 匹配到的关键词列表，为空则表示不需要
+        """
+        if not text:
+            return []
+            
+        matched_keywords = []
+        for keyword in TICKET_KEYWORDS:
+            if keyword in text:
+                matched_keywords.append(keyword)
+        
+        return matched_keywords
 
     async def create_ticket(self, ticket_data: AppTicket, access_token: str) -> Dict[str, Any]:
         """创建工单"""

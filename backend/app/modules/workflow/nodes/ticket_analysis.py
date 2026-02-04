@@ -15,6 +15,39 @@ import re
 logger = logging.getLogger(__name__)
 
 
+@observe(name="keyword_check_node", tags=["node", "analysis", "keyword"])
+async def async_keyword_check_node(state: WorkflowState):
+    """
+    关键词快速检测节点 - 在进入复杂 LLM 分析前，快速判断是否存在明确的维权/求助关键词
+    
+    Args:
+        state: 工作流状态
+    
+    Returns:
+        更新的状态，包含：
+            - ticket_keyword_triggered: bool - 是否触发关键词
+            - ticket_keywords_detected: List[str] - 检测到的关键词列表
+    """
+    try:
+        user_input = state.get("user_input", "")
+        # 返回匹配到的关键词列表
+        matched_keywords = ticket_service.check_ticket_needed(user_input)
+        is_triggered = len(matched_keywords) > 0
+        
+        logger.info(f"🔍 [keyword_check] Result: {is_triggered}, Keywords: {matched_keywords} (Input: {user_input[:20]}...)")
+        
+        return {
+            "ticket_keyword_triggered": is_triggered,
+            "ticket_keywords_detected": matched_keywords
+        }
+    except Exception as e:
+        logger.error(f"❌ 关键词检测节点执行失败: {str(e)}", exc_info=True)
+        return {
+            "ticket_keyword_triggered": False,
+            "ticket_keywords_detected": []
+        }
+
+
 @observe(name="ticket_analysis_node", tags=["node", "analysis", "ticket"])
 async def async_ticket_analysis_node(state: WorkflowState):
     """
@@ -102,6 +135,21 @@ async def async_ticket_analysis_node(state: WorkflowState):
             except Exception as e:
                 logger.error(f"Failed to fetch categories for prompt: {e}")
 
+        # 获取关键词检测结果（由上游节点 async_keyword_check_node 传入）
+        is_keyword_triggered = state.get("ticket_keyword_triggered", False)
+        keywords_detected = state.get("ticket_keywords_detected", [])
+        
+        # 根据检测结果调整提示信息
+        if is_keyword_triggered:
+            keyword_str = "、".join(keywords_detected)
+            keyword_info = (
+                f"【系统强制指令】检测到用户输入包含明确的维权/求助关键词：【{keyword_str}】。\n"
+                f"规则：当出现上述关键词时，need_ticket 字段必须为 true（百分百），并请详细分析用户诉求。"
+            )
+            logger.info(f"⚠️ [ticket_analysis] 关键词已触发: {keyword_str}，启用强制工单分析模式")
+        else:
+            keyword_info = "未检测到特定高危触发词，请按常规逻辑判断。"
+
         # 构建分析 Prompt
         ticket_prompt_template = get_ticket_analysis_prompt()
         analysis_prompt = ticket_prompt_template.format(
@@ -109,6 +157,7 @@ async def async_ticket_analysis_node(state: WorkflowState):
             user_input=user_input,
             llm_response=llm_response,
             intent_info=intent_info,  # 新增：意图信息
+            keyword_info=keyword_info, # 新增：关键词检测信息
             category_options=category_options
         )
         

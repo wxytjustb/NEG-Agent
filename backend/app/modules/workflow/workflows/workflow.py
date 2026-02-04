@@ -3,7 +3,7 @@ from app.modules.workflow.core.graph import WorkflowGraphBuilder
 from app.modules.workflow.core.state import WorkflowState, format_workflow_state
 from app.modules.workflow.nodes.Intent_recognition import detect_intent
 from app.modules.workflow.nodes.llm_answer import async_llm_stream_answer_node
-from app.modules.workflow.nodes.ticket_analysis import async_ticket_analysis_node, async_ask_user_confirmation_node
+from app.modules.workflow.nodes.ticket_analysis import async_ticket_analysis_node, async_ask_user_confirmation_node, async_keyword_check_node
 from app.modules.workflow.nodes.user_info import async_user_info_node  # 异步版本（支持 session 缓存）
 from app.modules.workflow.nodes.chromadb_node import get_memory_node, save_memory_node  # ChromaDB 记忆节点
 from app.modules.workflow.nodes.database_node import save_database_node  # MySQL 数据库节点
@@ -162,6 +162,7 @@ def create_chat_workflow():
     builder.add_node("get_memory", get_memory_node)                        # 第3步：获取 ChromaDB 历史记忆（相似度检索）
     builder.add_node("get_feedback", async_feedback_node)                  # 第3步（并行）：获取用户反馈趋势
     builder.add_node("intent_recognition", intent_recognition_node)        # 第4步：意图识别
+    builder.add_node("keyword_check", async_keyword_check_node)            # 第5步：关键词快速检测（串行，在分析前）
     builder.add_node("ticket_analysis", async_ticket_analysis_node)        # 第5步：工单分析（并行）
     builder.add_node("llm_answer", async_llm_stream_answer_node)          # 第5步：LLM回答（并行）
     builder.add_node("ask_user_confirmation", async_ask_user_confirmation_node) # 第6步：工单确认
@@ -183,7 +184,8 @@ def create_chat_workflow():
     builder.add_edge("get_feedback", "intent_recognition")        # 反馈趋势 → 意图识别（三路汇聚）
     
     # 意图识别后，并行执行工单分析和 LLM 回答
-    builder.add_edge("intent_recognition", "ticket_analysis")     # 意图识别 → 工单分析
+    builder.add_edge("intent_recognition", "keyword_check")       # 意图识别 → 关键词检测
+    builder.add_edge("keyword_check", "ticket_analysis")          # 关键词检测 → 工单分析
     builder.add_edge("intent_recognition", "llm_answer")          # 意图识别 → LLM对话
     
     # 关键修改：工单确认节点需要等待 LLM回答 和 工单分析 都完成后才执行
