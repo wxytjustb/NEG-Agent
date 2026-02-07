@@ -5,7 +5,7 @@ from app.modules.workflow.nodes.Intent_recognition import detect_intent
 from app.modules.workflow.nodes.llm_answer import async_llm_stream_answer_node
 from app.modules.workflow.nodes.ticket_analysis import async_ticket_analysis_node, async_ask_user_confirmation_node, async_keyword_check_node
 from app.modules.workflow.nodes.user_info import async_user_info_node  # 异步版本（支持 session 缓存）
-from app.modules.workflow.nodes.chromadb_node import get_memory_node, save_memory_node  # ChromaDB 记忆节点
+from app.modules.workflow.nodes.chromadb_node import get_similar_messages_node, save_memory_node  # ChromaDB 记忆节点 
 from app.modules.workflow.nodes.database_node import save_database_node  # MySQL 数据库节点
 from app.modules.workflow.nodes.working_memory import working_memory  # Working Memory 短期记忆节点
 from app.modules.workflow.nodes.feedback_node import async_feedback_node  # 用户反馈节点
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 @observe(name="intent_recognition_node", tags=["node", "intent"])
-def intent_recognition_node(state: WorkflowState) -> Dict[str, Any]:
+async def intent_recognition_node(state: WorkflowState) -> Dict[str, Any]:
     """意图识别节点 - 基于用户输入分析意图"""
     logger.info("========== 意图识别节点开始 ===========")
     
@@ -41,7 +41,7 @@ def intent_recognition_node(state: WorkflowState) -> Dict[str, Any]:
         logger.info(f"历史上下文: {len(history_text)} 字符")
         
         # 调用意图识别（只使用 user_input 和 history_text）
-        intent, confidence, all_scores, intents = detect_intent(
+        intent, confidence, all_scores, intents = await detect_intent(
             user_input=user_input,
             history_text=history_text
         )
@@ -86,11 +86,14 @@ async def get_working_memory_node(state: WorkflowState) -> Dict[str, Any]:
     """获取 Working Memory 节点 - 从 Redis 获取最近10轮对话"""
     try:
         conversation_id = state.get("conversation_id")  # 改为使用 conversation_id
+        access_token = state.get("access_token")  # 获取 access_token
+        
         if not conversation_id:
             return {"working_memory_text": "", "working_memory_count": 0}
         
         # 获取最近10轮对话（20条消息）
-        messages = await working_memory.get_messages(conversation_id)  # 使用 conversation_id
+        # 传入 access_token 以支持 Redis 过期时的 API 回退机制
+        messages = await working_memory.get_messages(conversation_id, access_token)
         
         if not messages:
             return {"working_memory_text": "", "working_memory_count": 0}
@@ -159,7 +162,7 @@ def create_chat_workflow():
     # 2. 添加节点（按执行顺序）
     builder.add_node("user_info", async_user_info_node)                    # 第1步：获取用户画像
     builder.add_node("get_working_memory", get_working_memory_node)        # 第2步：获取 Working Memory（Redis 10轮对话）
-    builder.add_node("get_memory", get_memory_node)                        # 第3步：获取 ChromaDB 历史记忆（相似度检索）
+    builder.add_node("get_similar_messages", get_similar_messages_node)    # 第3步：获取 ChromaDB 相似记忆（RAG）
     builder.add_node("get_feedback", async_feedback_node)                  # 第3步（并行）：获取用户反馈趋势
     builder.add_node("intent_recognition", intent_recognition_node)        # 第4步：意图识别
     builder.add_node("keyword_check", async_keyword_check_node)            # 第5步：关键词快速检测（串行，在分析前）
@@ -176,11 +179,11 @@ def create_chat_workflow():
     # 4. 添加边（连接节点）
     # 并行流程：用户信息 → (Working Memory + ChromaDB记忆 + 反馈趋势 并行) → 意图识别 → (工单分析 + LLM对话 并行) → 工单确认 → 保存Working Memory → (ChromaDB + MySQL 并行保存) → 结束
     builder.add_edge("user_info", "get_working_memory")           # 用户信息 → Working Memory
-    builder.add_edge("user_info", "get_memory")                   # 用户信息 → ChromaDB（并行）
+    builder.add_edge("user_info", "get_similar_messages")         # 用户信息 → ChromaDB（并行）
     builder.add_edge("user_info", "get_feedback")                 # 用户信息 → 反馈趋势（并行）
     
     builder.add_edge("get_working_memory", "intent_recognition")  # Working Memory → 意图识别
-    builder.add_edge("get_memory", "intent_recognition")          # ChromaDB → 意图识别（三路汇聚）
+    builder.add_edge("get_similar_messages", "intent_recognition") # ChromaDB → 意图识别（三路汇聚）
     builder.add_edge("get_feedback", "intent_recognition")        # 反馈趋势 → 意图识别（三路汇聚）
     
     # 意图识别后，并行执行工单分析和 LLM 回答

@@ -121,9 +121,9 @@ def test_workflow_with_different_intents(session_id: str):
         elif "工资" in prompt or "维权" in prompt:
             mock_response.content = "[模拟回答] 辛苦挣来的钱被拖欠，这种焦虑和不安我特别能理解。法律上你有权要求公司按时足额支付工资。建议您先整理好证据，然后拨戒12333劳动保障监察热线咨询。"
         elif "天气" in prompt:
-            mock_response.content = "[模拟回答] 今天天气还不错呢，阳光挺暖和的。不过你们在外面跑单，风吹日晒的，记得多留意天气变化，带好雨具或防晒呀。"
+            mock_response.content = "[模拟回答] 今天天气还不错呢，阳光挺暖和的。出门在外要注意照顾好自己，别太累着了。"
         else:
-            mock_response.content = "[模拟回答] 我会一直在这里陈着你面对的。"
+            mock_response.content = "[模拟回答] 我会一直在这里陪着你面对的。"
         
         return mock_response
     

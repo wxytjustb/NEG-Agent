@@ -4,6 +4,7 @@
 import json
 import logging
 from typing import Dict, Any, List
+import httpx
 from app.initialize import redis
 from app.core.config import settings
 from app.core.session_token import get_session
@@ -132,7 +133,95 @@ class WorkingMemory:
             return False
     
     @staticmethod
-    async def get_messages(session_token: str) -> List[Dict[str, Any]]:
+    async def _fetch_history_from_api(session_token: str, access_token: str) -> List[Dict[str, Any]]:
+        """
+        从 Golang API 获取历史记录
+        URL: /app/conversation/{conversationId}/history
+        
+        Args:
+            session_token: 会话 ID (conversationId)
+            access_token: 访问令牌
+            
+        Returns:
+            List[Dict]: 消息列表
+        """
+        if not access_token:
+            logger.warning(f"⚠️ 无法从 API 获取历史记录: 缺少 access_token | session={session_token[:20]}...")
+            return []
+            
+        url = f"{settings.GOLANG_API_BASE_URL}/app/conversation/{session_token}/history"
+        headers = {"x-token": access_token}
+        
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(url, headers=headers)
+                
+                if response.status_code == 200:
+                    resp_json = response.json()
+                    
+                    # 解析响应: {"code": 0, "data": {"messages": [...]}}
+                    if resp_json.get("code") == 0 and "data" in resp_json:
+                        data = resp_json["data"]
+                        if isinstance(data, dict) and "messages" in data:
+                            messages = data["messages"]
+                            if isinstance(messages, list):
+                                # 仅保留最近的 MAX_MESSAGES 条消息 (FIFO)
+                                if len(messages) > WorkingMemory.MAX_MESSAGES:
+                                    messages = messages[-WorkingMemory.MAX_MESSAGES:]
+                                    
+                                logger.info(f"✅ 从 API 获取历史记录成功，共 {len(messages)} 条 (已截取最近 {WorkingMemory.MAX_MESSAGES} 条)")
+                                return messages
+                    
+                    logger.warning(f"⚠️ API 返回数据格式不正确: {resp_json}")
+                    return []
+                else:
+                    logger.warning(f"⚠️ API 获取历史记录失败: Status {response.status_code} | Response: {response.text}")
+                    return []
+        except Exception as e:
+            logger.error(f"❌ 从 API 获取历史记录异常: {e}")
+            return []
+
+    @staticmethod
+    async def _save_batch_to_redis(session_token: str, messages: List[Dict[str, Any]]) -> bool:
+        """
+        批量保存消息到 Redis (仅用于 API 回退时的初始化)
+        保持 FIFO 队列 (最大 20 条)
+        """
+        if not redis.redis_client or not messages:
+            return False
+            
+        try:
+            cache_key = f"{WorkingMemory.MEMORY_PREFIX}{session_token}"
+            
+            # FIFO 裁剪：保留最近 20 条消息
+            if len(messages) > WorkingMemory.MAX_MESSAGES:
+                messages = messages[-WorkingMemory.MAX_MESSAGES:]
+            
+            # 获取 session 的 TTL
+            ttl = await WorkingMemory.get_ttl_from_session(session_token)
+            
+            # 保存到 Redis
+            data = {
+                "session_token": session_token,
+                "messages": messages,
+                "total_messages": len(messages),
+                "max_rounds": WorkingMemory.MAX_ROUNDS
+            }
+            
+            await redis.redis_client.set(
+                cache_key,
+                json.dumps(data, ensure_ascii=False),
+                ex=ttl
+            )
+            
+            logger.info(f"✅ 已同步 API 历史记录到 Redis | count={len(messages)}")
+            return True
+        except Exception as e:
+            logger.error(f"❌ 同步 Redis 失败: {e}")
+            return False
+
+    @staticmethod
+    async def get_messages(session_token: str, access_token: str = None) -> List[Dict[str, Any]]:
         """
         获取指定 session 的所有短期记忆消息
         
@@ -154,12 +243,22 @@ class WorkingMemory:
                 data = json.loads(cached_data)
                 messages = data.get("messages", [])
                 logger.info(
-                    f"📚 获取短期记忆 | session={session_token[:20]}... | "
+                    f"📚 获取短期记忆 (Redis) | session={session_token[:20]}... | "
                     f"消息数={len(messages)}"
                 )
                 return messages
             else:
-                logger.info(f"📭 无短期记忆 | session={session_token[:20]}...")
+                # Redis 中没有，尝试从 API 获取 (Fallback)
+                if access_token:
+                    logger.info(f"📭 Redis 无记忆，尝试从 API 获取 | session={session_token[:20]}...")
+                    messages = await WorkingMemory._fetch_history_from_api(session_token, access_token)
+                    
+                    if messages:
+                        # 获取成功后，同步保存到 Redis
+                        await WorkingMemory._save_batch_to_redis(session_token, messages)
+                        return messages
+                
+                logger.info(f"📭 无短期记忆 (Redis & API) | session={session_token[:20]}...")
                 return []
                 
         except Exception as e:
@@ -167,18 +266,19 @@ class WorkingMemory:
             return []
     
     @staticmethod
-    async def get_recent_messages(session_token: str, limit: int = None) -> List[Dict[str, Any]]:
+    async def get_recent_messages(session_token: str, limit: int = None, access_token: str = None) -> List[Dict[str, Any]]:
         """
         获取最近的 N 条消息
         
         Args:
             session_token: 会话 Token
             limit: 限制返回条数（None 表示返回全部）
+            access_token: 可选，用于 API 回退
             
         Returns:
             List[Dict]: 消息列表
         """
-        messages = await WorkingMemory.get_messages(session_token)
+        messages = await WorkingMemory.get_messages(session_token, access_token)
         
         if limit and len(messages) > limit:
             return messages[-limit:]

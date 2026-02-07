@@ -70,12 +70,10 @@ async def async_ticket_analysis_node(state: WorkflowState):
     try:
         user_input = state.get("user_input", "")
         llm_response = state.get("llm_response", "")
-        # 优先使用 working_memory_text (Redis短期记忆)，如果为空则尝试 history_text (ChromaDB记忆)
-        wm_text = state.get("working_memory_text")
-        logger.info(f"🔍 [ticket_analysis] working_memory_text length: {len(wm_text) if wm_text else 0}")
-        logger.info(f"🔍 [ticket_analysis] working_memory_text content preview: {wm_text[:50] if wm_text else 'None'}")
+
+        history_text = state.get("history_text", "") or state.get("working_memory_text", "")
         
-        history_text = wm_text or state.get("history_text", "")
+        logger.info(f"🔍 [ticket_analysis] history_text length: {len(history_text) if history_text else 0}")
         
         # 获取意图识别结果
         intent = state.get("intent", "")
@@ -143,10 +141,12 @@ async def async_ticket_analysis_node(state: WorkflowState):
         if is_keyword_triggered:
             keyword_str = "、".join(keywords_detected)
             keyword_info = (
-                f"【系统强制指令】检测到用户输入包含明确的维权/求助关键词：【{keyword_str}】。\n"
-                f"规则：当出现上述关键词时，need_ticket 字段必须为 true（百分百），并请详细分析用户诉求。"
+                f"【系统提示】检测到用户输入包含维权/求助关键词：【{keyword_str}】。\n"
+                f"规则：虽然包含关键词，但你必须进一步检查【对话历史】或【本句内容】中是否有具体的**维权事由**或**求助意图**。\n"
+                f"- 如果有具体事由（如扣款、封号、纠纷等），请将 need_ticket 设为 true。\n"
+                f"- 如果仅有关键词但无具体事由（如闲聊中提到、或表示“不投诉”），请将 need_ticket 设为 false。"
             )
-            logger.info(f"⚠️ [ticket_analysis] 关键词已触发: {keyword_str}，启用强制工单分析模式")
+            logger.info(f"⚠️ [ticket_analysis] 关键词已触发: {keyword_str}，启用关键词辅助分析模式")
         else:
             keyword_info = "未检测到特定高危触发词，请按常规逻辑判断。"
 

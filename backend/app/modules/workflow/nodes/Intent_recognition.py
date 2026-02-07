@@ -3,7 +3,7 @@ from typing import Dict, Tuple, List, Optional, Any
 from app.core.config import settings
 import logging
 import json
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -13,17 +13,17 @@ INTENT_LABELS = [label.strip() for label in settings.INTENT_LABELS.split(",") if
 _aliyun_client = None
 
 
-def _get_aliyun_client() -> OpenAI:
+def _get_aliyun_client() -> AsyncOpenAI:
     """获取阿里云客户端实例（懒加载）
     
     Returns:
-        OpenAI 客户端实例（兼容阿里云 API）
+        AsyncOpenAI 客户端实例（兼容阿里云 API）
     """
     global _aliyun_client
     
     if _aliyun_client is None:
         logger.info("正在初始化阿里云百炼 API 客户端...")
-        _aliyun_client = OpenAI(
+        _aliyun_client = AsyncOpenAI(
             api_key=settings.ALIYUN_API_KEY,
             base_url=settings.ALIYUN_API_BASE_URL
         )
@@ -32,7 +32,7 @@ def _get_aliyun_client() -> OpenAI:
     return _aliyun_client
 
 
-def detect_intent(
+async def detect_intent(
     user_input: str,
     history_text: str = "",
     min_confidence: Optional[float] = None
@@ -63,7 +63,7 @@ def detect_intent(
             history_text=history_text
         )
         
-        response = client.chat.completions.create(
+        response = await client.chat.completions.create(
             model=settings.ALIYUN_MODEL,
             messages=[{"role": "system", "content": system_prompt}],
             temperature=0.1,
