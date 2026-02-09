@@ -204,7 +204,7 @@ TICKET_ANALYSIS_PROMPT = """
     "need_ticket": true/false, 
     "reason": "判断理由（必须说明是否找到了具体事由）",
     "problem_type": "问题类型（{category_options}，无工单则为null）",
-    "title": "工单标题（仅当 need_ticket 为 true 时填写，格式：平台-核心问题，15字以内）",
+    "title": "工单标题（仅当 need_ticket 为 true 时填写，格式：核心问题摘要，10字以内，禁止包含平台名称）",
     "facts": "事实简要说明（提取的关键事实，必须包含历史对话中的细节）",
     "user_appeal": "用户诉求描述（提取的核心诉求）"
 }}
