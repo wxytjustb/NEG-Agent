@@ -58,14 +58,14 @@ async def intent_recognition_node(state: WorkflowState) -> Dict[str, Any]:
             "intents": intents
         }
 
-        # 🐛 [DEBUG] 打印输出 State 信息
-        logger.info("=" * 60)
-        logger.info("🐛 [intent_recognition] OUTPUT STATE UPDATE:")
-        try:
-            logger.info(json.dumps(result, ensure_ascii=False, indent=2, default=str))
-        except Exception:
-            logger.info(result)
-        logger.info("=" * 60)
+        # # 🐛 [DEBUG] 打印输出 State 信息
+        # logger.info("=" * 60)
+        # logger.info("🐛 [intent_recognition] OUTPUT STATE UPDATE:")
+        # try:
+        #     logger.info(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+        # except Exception:
+        #     logger.info(result)
+        # logger.info("=" * 60)
         
         return result
         

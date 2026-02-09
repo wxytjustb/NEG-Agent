@@ -38,8 +38,19 @@ TICKET_SUMMARY_PROMPT = """
 1. **issueType**: 工单二级分类 (必须是【可选工单类别】中列出的名称，例如 "工资纠纷"。请仔细分析用户问题，必须属于提供的分类之一)
 2. **platform**: 涉及平台 (如: 饿了么, 美团, 滴滴, 韵达等，如果没有明确提及则填 null)
 3. **briefFacts**: 事实简述 (客观描述发生了什么，包含时间、地点、人物、起因、经过、结果。整合所有细节，保持客观)
+4. **title**: 工单标题 (格式：核心问题摘要，10字以内，禁止包含平台名称)
 5. **userRequest**: 用户诉求 (用户希望得到什么帮助或结果)
 6. **peopleNeedingHelp**: 涉及人数 (如果是单人填1，多人填具体数字或描述)
+
+## 返回示例
+{
+    "issueType": "工资纠纷",
+    "platform": "饿了么",
+    "briefFacts": "用户反馈10月份跑单工资未到账，站点称下月发。",
+    "title": "工资延期发放",
+    "userRequest": "希望协助追回工资",
+    "peopleNeedingHelp": 1
+}
 
 请返回纯 JSON 格式，不要包含 Markdown 格式标记（如 ```json）。
 如果没有相关信息，请对应字段填 null。
@@ -241,12 +252,14 @@ class TicketSummaryService:
                 "status": "pending" # 默认状态
             }
             
-            # 根据 issueType 自动填充 title (一级分类)
-            issue_type = result.get("issueType")
-            if issue_type and issue_type in category_map:
-                ticket_data["title"] = category_map[issue_type]
-            else:
-                ticket_data["title"] = result.get("title") # 如果没有匹配到，尝试使用 LLM 可能返回的 title (虽然 Prompt 中移除了)
+            # 优先使用 LLM 生成的 title
+            ticket_data["title"] = result.get("title")
+            
+            # 如果 LLM 未生成 title，则尝试使用父级分类名称作为 title
+            if not ticket_data["title"]:
+                issue_type = result.get("issueType")
+                if issue_type and issue_type in category_map:
+                    ticket_data["title"] = category_map[issue_type]
             
             # 尝试设置 appUserId (如果 user_id 是数字)
             if user_id and str(user_id).isdigit():

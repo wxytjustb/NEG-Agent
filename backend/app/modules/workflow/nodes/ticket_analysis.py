@@ -34,7 +34,7 @@ async def async_keyword_check_node(state: WorkflowState):
         matched_keywords = ticket_service.check_ticket_needed(user_input)
         is_triggered = len(matched_keywords) > 0
         
-        logger.info(f"🔍 [keyword_check] Result: {is_triggered}, Keywords: {matched_keywords} (Input: {user_input[:20]}...)")
+        logger.debug(f"🔍 [keyword_check] Result: {is_triggered}, Keywords: {matched_keywords} (Input: {user_input[:20]}...)")
         
         return {
             "ticket_keyword_triggered": is_triggered,
@@ -73,7 +73,7 @@ async def async_ticket_analysis_node(state: WorkflowState):
 
         history_text = state.get("history_text", "") or state.get("working_memory_text", "")
         
-        logger.info(f"🔍 [ticket_analysis] history_text length: {len(history_text) if history_text else 0}")
+        logger.debug(f"🔍 [ticket_analysis] history_text length: {len(history_text) if history_text else 0}")
         
         # 获取意图识别结果
         intent = state.get("intent", "")
@@ -129,7 +129,7 @@ async def async_ticket_analysis_node(state: WorkflowState):
 
                          if level2_names:
                              category_options = "/".join(level2_names)
-                             logger.info(f"Using dynamic categories for prompt: {category_options}")
+                             logger.debug(f"Using dynamic categories for prompt: {category_options}")
             except Exception as e:
                 logger.error(f"Failed to fetch categories for prompt: {e}")
 
@@ -146,7 +146,7 @@ async def async_ticket_analysis_node(state: WorkflowState):
                 f"- 如果有具体事由（如扣款、封号、纠纷等），请将 need_ticket 设为 true。\n"
                 f"- 如果仅有关键词但无具体事由（如闲聊中提到、或表示“不投诉”），请将 need_ticket 设为 false。"
             )
-            logger.info(f"⚠️ [ticket_analysis] 关键词已触发: {keyword_str}，启用关键词辅助分析模式")
+            logger.debug(f"⚠️ [ticket_analysis] 关键词已触发: {keyword_str}，启用关键词辅助分析模式")
         else:
             keyword_info = "未检测到特定高危触发词，请按常规逻辑判断。"
 
@@ -161,7 +161,7 @@ async def async_ticket_analysis_node(state: WorkflowState):
             category_options=category_options
         )
         
-        logger.info(f"🔍 开始分析是否需要创建工单... (意图: {intent})")
+        logger.debug(f"🔍 开始分析是否需要创建工单... (意图: {intent})")
         
         # 调用 LLM 分析（使用同步调用，完全不产生流式事件）
         # 注意：此处明确使用阿里云模型 (ALIYUN_MODEL) 进行分析，以获得更准确的中文语境理解
@@ -190,7 +190,7 @@ async def async_ticket_analysis_node(state: WorkflowState):
         else:
             full_response = str(response)
         
-        logger.info(f"📝 分析结果原始输出: {full_response}")
+        logger.debug(f"📝 分析结果原始输出: {full_response}")
         
         # 解析 JSON 结果
         need_create_ticket = False
@@ -225,7 +225,7 @@ async def async_ticket_analysis_node(state: WorkflowState):
             facts = result.get('facts', '')
             user_appeal = result.get('user_appeal', '')
             
-            logger.info(f"✅ 工单判断完成: need_ticket={need_create_ticket}, reason={ticket_reason}, company={company}")
+            logger.debug(f"✅ 工单判断完成: need_ticket={need_create_ticket}, reason={ticket_reason}, company={company}")
 
         except Exception as parse_error:
             logger.error(f"❌ JSON 解析失败: {str(parse_error)}，默认不创建工单")
@@ -235,7 +235,7 @@ async def async_ticket_analysis_node(state: WorkflowState):
         if need_create_ticket and problem_type:
             ticket_parent_category = level2_to_level1_map.get(problem_type, "")
             if ticket_parent_category:
-                logger.info(f"Matched ticket category: {ticket_parent_category} -> {problem_type}")
+                logger.debug(f"Matched ticket category: {ticket_parent_category} -> {problem_type}")
             else:
                 logger.warning(f"Could not find parent category for: {problem_type}")
 
@@ -251,15 +251,15 @@ async def async_ticket_analysis_node(state: WorkflowState):
         }
         
         # 🐛 [DEBUG] 打印完整 State 信息
-        logger.info("=" * 60)
-        logger.info("🐛 [ticket_analysis] FULL STATE DUMP:")
-        try:
-            # 使用 format_workflow_state 确保打印所有字段
-            logger.info(json.dumps(format_workflow_state(state), ensure_ascii=False, indent=2, default=str))
-        except Exception:
-            # 降级打印
-            logger.info(state)
-        logger.info("=" * 60)
+        # logger.debug("=" * 60)
+        # logger.debug("🐛 [ticket_analysis] FULL STATE DUMP:")
+        # try:
+        #     # 使用 format_workflow_state 确保打印所有字段
+        #     logger.debug(json.dumps(format_workflow_state(state), ensure_ascii=False, indent=2, default=str))
+        # except Exception:
+        #     # 降级打印
+        #     logger.debug(state)
+        # logger.debug("=" * 60)
         
         return result
         
