@@ -45,6 +45,20 @@ async def async_llm_stream_answer_node(state: WorkflowState, config: Optional[Ru
         
         # 🔥 关键：使用 ainvoke + config，让 astream_events 能捕获流式事件
         # 当 streaming=True 时，ainvoke 内部会流式处理，astream_events 能监听到
+        # 注入特殊 tag 以便在 workflow 中过滤
+        if config:
+            # 确保不修改原始 config 对象
+            import copy
+            config = copy.copy(config)
+            tags = config.get("tags", [])
+            if tags is None:
+                tags = []
+            if "answer_generator" not in tags:
+                tags.append("answer_generator")
+            config["tags"] = tags
+        else:
+            config = {"tags": ["answer_generator"]}
+
         response = await llm.ainvoke(full_prompt, config=config)
         full_response = response.content if hasattr(response, 'content') else str(response)
         

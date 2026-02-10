@@ -34,8 +34,13 @@ async def async_keyword_check_node(state: WorkflowState):
         matched_keywords = ticket_service.check_ticket_needed(user_input)
         is_triggered = len(matched_keywords) > 0
         
-        logger.debug(f"🔍 [keyword_check] Result: {is_triggered}, Keywords: {matched_keywords} (Input: {user_input[:20]}...)")
-        
+        # 强制打印到控制台，方便调试
+        if is_triggered:
+            logger.info(f"🔍 [keyword_check] ✅ 触发关键词: {matched_keywords}")
+            print(f"🔍 [keyword_check] ✅ 触发关键词: {matched_keywords}")
+        else:
+            logger.info(f"🔍 [keyword_check] ❌ 未触发关键词 (Input: {user_input[:20]}...)")
+            
         return {
             "ticket_keyword_triggered": is_triggered,
             "ticket_keywords_detected": matched_keywords
@@ -138,17 +143,13 @@ async def async_ticket_analysis_node(state: WorkflowState):
         keywords_detected = state.get("ticket_keywords_detected", [])
         
         # 根据检测结果调整提示信息
-        if is_keyword_triggered:
-            keyword_str = "、".join(keywords_detected)
-            keyword_info = (
-                f"【系统提示】检测到用户输入包含维权/求助关键词：【{keyword_str}】。\n"
-                f"规则：虽然包含关键词，但你必须进一步检查【对话历史】或【本句内容】中是否有具体的**维权事由**或**求助意图**。\n"
-                f"- 如果有具体事由（如扣款、封号、纠纷等），请将 need_ticket 设为 true。\n"
-                f"- 如果仅有关键词但无具体事由（如闲聊中提到、或表示“不投诉”），请将 need_ticket 设为 false。"
-            )
-            logger.debug(f"⚠️ [ticket_analysis] 关键词已触发: {keyword_str}，启用关键词辅助分析模式")
-        else:
-            keyword_info = "未检测到特定高危触发词，请按常规逻辑判断。"
+        keyword_data = {
+            "triggered": is_keyword_triggered,
+            "keywords": keywords_detected
+        }
+        # 将结构化数据转为 JSON 字符串
+        keyword_info = json.dumps(keyword_data, ensure_ascii=False)
+        logger.debug(f"🔍 [ticket_analysis] Keyword Info JSON: {keyword_info}")
 
         # 构建分析 Prompt
         ticket_prompt_template = get_ticket_analysis_prompt()

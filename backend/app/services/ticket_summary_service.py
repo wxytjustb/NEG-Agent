@@ -15,42 +15,52 @@ logger = logging.getLogger(__name__)
 
 # 工单总结提示词
 TICKET_SUMMARY_PROMPT = """
-你是一个专业的工单处理助手。请根据以下信息（对话历史、用户画像、工单类别），提取关键信息并生成工单数据。
+你是一个专业的工单处理助手。请根据以下信息（对话历史、当前输入、用户画像、工单类别），提取关键信息并生成工单数据。
 
 ## 上下文信息
-1. **对话历史**:
+1. **当前用户输入**:
+{current_input}
+
+2. **对话历史**:
 {history}
 
-2. **用户画像**:
+3. **用户画像**:
 {user_profile}
 
-3. **可选工单类别**:
+4. **可选工单类别**:
 {ticket_categories}
 
-## 核心原则：绝对忠实于事实，严禁捏造
+## 核心原则：绝对忠实于事实，严禁捏造，下面所罗列的东西都是举例不是事实，一切都要按照用户所说的实情来总结。
 1. **仅依据对话内容**：你总结的所有信息必须能在用户提供的文本中找到明确依据。
 2. **区分事实来源**：只有【用户】说的话才是案件事实。
 3. **缺失即留空**：如果输入中未提及时间、金额、平台等具体信息，**绝对不要捏造或推测**，对应字段必须填 null。
 4. **禁止脑补细节**：不要补充任何用户没说过的背景故事或细节。
+5. **严禁抄袭示例**：下方的“返回示例”仅供格式参考，用户说了什么就总结什么。
 
 ## 提取字段要求
 请提取以下字段并返回 JSON 格式：
-1. **issueType**: 工单二级分类 (必须是【可选工单类别】中列出的名称，例如 "工资纠纷"。请仔细分析用户问题，必须属于提供的分类之一)
-2. **platform**: 涉及平台 (如: 饿了么, 美团, 滴滴, 韵达等，如果没有明确提及则填 null)
+1. **issueType**: 工单二级分类 (必须是【可选工单类别】中列出的名称。请仔细分析用户问题，必须属于提供的分类之一)
+2. **platform**: 涉及平台 (如果没有明确提及则填 null)
 3. **briefFacts**: 事实简述 (客观描述发生了什么，包含时间、地点、人物、起因、经过、结果。整合所有细节，保持客观)
 4. **title**: 工单标题 (格式：核心问题摘要，10字以内，禁止包含平台名称)
 5. **userRequest**: 用户诉求 (用户希望得到什么帮助或结果)
 6. **peopleNeedingHelp**: 涉及人数 (如果是单人填1，多人填具体数字或描述)
 
-## 返回示例
-{
-    "issueType": "工资纠纷",
-    "platform": "饿了么",
-    "briefFacts": "用户反馈10月份跑单工资未到账，站点称下月发。",
-    "title": "工资延期发放",
-    "userRequest": "希望协助追回工资",
+## 返回示例 (仅作格式参考，内容请忽略)
+{{
+    "issueType": "示例分类",
+    "platform": "示例平台",
+    "briefFacts": "用户描述的实际情况...",
+    "title": "示例标题",
+    "userRequest": "用户的实际诉求...",
     "peopleNeedingHelp": 1
-}
+}}
+
+## 极简输入处理
+如果用户只说了“人工”、“投诉”、“帮帮我”等简短词汇，没有提供具体事实：
+- briefFacts 填 null 或 "用户仅表达了诉求，未提供细节"
+- issueType 尝试推断，无法推断填 null
+- 其他字段按需填 null
 
 请返回纯 JSON 格式，不要包含 Markdown 格式标记（如 ```json）。
 如果没有相关信息，请对应字段填 null。
@@ -119,6 +129,8 @@ class TicketSummaryService:
         :param access_token: 用户 token (用于获取工单类别)
         :return: AppTicket 对象 (仅包含总结字段)
         """
+        print(f"\n🤖 [Ticket Summary Service] Start summarizing... Text: {text[:20] if text else 'None'}...")
+        
         try:
             # 1. 获取对话历史 (从 Golang 后端 MySQL)
             history_text = "无"
@@ -196,76 +208,28 @@ class TicketSummaryService:
             
             # 处理空文本情况
             input_text = text if text else "（无新输入，请根据对话历史总结）"
-
-            # 打印所有输入信息到控制台
-            print("\n" + "="*50)
-            print("🔍 [TICKET SUMMARY DEBUG INFO]")
-            print(f"👤 User ID: {user_id}")
-            print(f"🆔 Conversation ID: {conversation_id}")
-            print(f"📝 Input Text: {input_text}")
-            print("-" * 20)
-            print(f"📜 History Text (Preview):\n{history_text}")
-            print("-" * 20)
-            print(f"👤 User Profile: {user_profile}")
-            print("-" * 20)
-            print(f"🏷️ Categories: {ticket_categories}")
-            print("-" * 20)
             
-            # 渲染并打印完整的 Prompt
-            formatted_prompt = await prompt.ainvoke({
-                "history": history_text,
-                "user_profile": user_profile,
-                "ticket_categories": ticket_categories
-            })
-            print("🧩 [FINAL PROMPT]")
-            for msg in formatted_prompt.messages:
-                print(f"--- {msg.type} ---")
-                print(msg.content)
-                
-            print("="*50 + "\n")
+            # 打印 LLM 输入上下文
+            print("\n" + "-"*30 + " [LLM INPUT CONTEXT] " + "-"*30)
+            print(f"History Length: {len(history_text)}")
+            print(f"Categories: {ticket_categories[:100]}...")
+            print(f"User Profile: {user_profile}")
+            print(f"Input Text: {input_text}")
+            print("-" * 80 + "\n")
 
-            # 调用 LLM
-            logger.info(f"Summarizing ticket for user {user_id}")
             result = await chain.ainvoke({
                 "history": history_text,
+                "current_input": input_text,
                 "user_profile": user_profile,
-                "ticket_categories": ticket_categories
+                "ticket_categories": ticket_categories,
             })
             
-            # 打印 LLM 结果到控制台
-            print("\n" + "="*50)
-            print("🤖 [LLM SUMMARY RESULT]")
+            # 打印 LLM 原始输出
+            print("\n" + "-"*30 + " [LLM RAW OUTPUT] " + "-"*30)
             print(json.dumps(result, ensure_ascii=False, indent=2))
-            print("="*50 + "\n")
+            print("-" * 80 + "\n")
             
-            logger.info(f"LLM summary result: {result}")
-            
-            # 映射字段到 AppTicket
-            ticket_data = {
-                # title 稍后根据 issueType 自动填充
-                "issueType": result.get("issueType"),
-                "platform": result.get("platform"),
-                "briefFacts": result.get("briefFacts"),
-                "userRequest": result.get("userRequest"),
-                "peopleNeedingHelp": result.get("peopleNeedingHelp"),
-                "conversationId": conversation_id,
-                "status": "pending" # 默认状态
-            }
-            
-            # 优先使用 LLM 生成的 title
-            ticket_data["title"] = result.get("title")
-            
-            # 如果 LLM 未生成 title，则尝试使用父级分类名称作为 title
-            if not ticket_data["title"]:
-                issue_type = result.get("issueType")
-                if issue_type and issue_type in category_map:
-                    ticket_data["title"] = category_map[issue_type]
-            
-            # 尝试设置 appUserId (如果 user_id 是数字)
-            if user_id and str(user_id).isdigit():
-                ticket_data["appUserId"] = int(user_id)
-            
-            return AppTicket(**ticket_data)
+            return AppTicket(**result)
             
         except Exception as e:
             logger.error(f"Error summarizing ticket: {e}", exc_info=True)

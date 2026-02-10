@@ -38,6 +38,8 @@ class WorkflowState(TypedDict, total=False):
     llm_response: str  # LLM 生成的回答
     
     # ========== 工单相关 ==========
+    ticket_keyword_triggered: bool # 关键词检测是否触发
+    ticket_keywords_detected: List[str] # 检测到的关键词列表
     need_create_ticket: bool  # 是否需要创建工单
     ticket_reason: str  # 工单判断理由
     problem_type: str  # 问题类型（二级分类）

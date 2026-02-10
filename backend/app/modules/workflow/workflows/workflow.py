@@ -4,6 +4,7 @@ from app.modules.workflow.core.state import WorkflowState, format_workflow_state
 from app.modules.workflow.nodes.Intent_recognition import detect_intent
 from app.modules.workflow.nodes.llm_answer import async_llm_stream_answer_node
 from app.modules.workflow.nodes.ticket_analysis import async_ticket_analysis_node, async_ask_user_confirmation_node, async_keyword_check_node
+from app.modules.workflow.nodes.ticket_summary_node import async_ticket_summary_node # 新增：工单总结节点
 from app.modules.workflow.nodes.user_info import async_user_info_node  # 异步版本（支持 session 缓存）
 from app.modules.workflow.nodes.chromadb_node import get_similar_messages_node, save_memory_node  # ChromaDB 记忆节点 
 from app.modules.workflow.nodes.database_node import save_database_node  # MySQL 数据库节点
@@ -166,7 +167,8 @@ def create_chat_workflow():
     builder.add_node("get_feedback", async_feedback_node)                  # 第3步（并行）：获取用户反馈趋势
     builder.add_node("intent_recognition", intent_recognition_node)        # 第4步：意图识别
     builder.add_node("keyword_check", async_keyword_check_node)            # 第5步：关键词快速检测（串行，在分析前）
-    builder.add_node("ticket_analysis", async_ticket_analysis_node)        # 第5步：工单分析（并行）
+    builder.add_node("ticket_analysis", async_ticket_analysis_node)        # 第5步（分支A）：常规工单分析
+    builder.add_node("ticket_summary", async_ticket_summary_node)          # 第5步（分支B）：快速通道总结
     builder.add_node("llm_answer", async_llm_stream_answer_node)          # 第5步：LLM回答（并行）
     builder.add_node("ask_user_confirmation", async_ask_user_confirmation_node) # 第6步：工单确认
     builder.add_node("save_working_memory", save_to_working_memory_node)  # 第7步：保存到 Working Memory
@@ -188,12 +190,41 @@ def create_chat_workflow():
     
     # 意图识别后，并行执行工单分析和 LLM 回答
     builder.add_edge("intent_recognition", "keyword_check")       # 意图识别 → 关键词检测
-    builder.add_edge("keyword_check", "ticket_analysis")          # 关键词检测 → 工单分析
+    
+    # 关键词检测后的条件路由
+    def route_after_keyword_check(state: WorkflowState):
+        triggered = state.get("ticket_keyword_triggered", False)
+        keywords = state.get("ticket_keywords_detected", [])
+        
+        # 强制打印路由决策
+        print(f"\n🔍 [Workflow Route] Keyword Check: triggered={triggered}, keywords={keywords}")
+        
+        if triggered:
+            logger.info("🔀 [路由] 关键词触发 -> 走工单总结快速通道 (ticket_summary)")
+            print("🔀 [Workflow Route] -> ticket_summary")
+            return "ticket_summary"
+        else:
+            logger.info("🔀 [路由] 无关键词 -> 走常规分析 (ticket_analysis)")
+            print("🔀 [Workflow Route] -> ticket_analysis")
+            return "ticket_analysis"
+
+    builder.add_conditional_edges(
+        "keyword_check",
+        route_after_keyword_check,
+        {
+            "ticket_summary": "ticket_summary",
+            "ticket_analysis": "ticket_analysis"
+        }
+    )
+    
+    # builder.add_edge("keyword_check", "ticket_analysis")          # 旧逻辑已移除
+
     builder.add_edge("intent_recognition", "llm_answer")          # 意图识别 → LLM对话
     
-    # 关键修改：工单确认节点需要等待 LLM回答 和 工单分析 都完成后才执行
+    # 关键修改：工单确认节点需要等待 LLM回答 和 工单分析（或总结） 都完成后才执行
     # 这样确保了 LLM 回答流式输出完毕，且工单判断结果已出，再向用户展示确认界面（前端数据）
     builder.add_edge("ticket_analysis", "ask_user_confirmation")
+    builder.add_edge("ticket_summary", "ask_user_confirmation")   # 新增：总结分支也汇聚到确认节点
     builder.add_edge("llm_answer", "ask_user_confirmation")
     
     # 工单确认完成后，保存到 Working Memory
@@ -341,6 +372,11 @@ async def run_chat_workflow_streaming(
                 # 检查事件信息
                 event_name = event.get("name", "")
                 event_tags = event.get("tags", [])
+
+                # 关键过滤：只输出带有 "answer_generator" 标签的事件（来自 llm_answer_node）
+                # 这样可以防止 ticket_summary_node 等其他节点的 LLM 调用结果泄露到前端
+                if "answer_generator" not in event_tags:
+                    continue
 
                 # 调试：打印事件信息
                 # logger.info(f"🔍 流式事件: name={event_name}, tags={event_tags}")

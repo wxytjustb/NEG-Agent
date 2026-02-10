@@ -400,6 +400,7 @@ const ticketPlatform = ref(''); // 涉事平台（AI分析/用户公司）
 const pendingUserInput = ref('');  // 待处理的用户输入
 const selectedHelpType = ref('权益咨询'); // 默认选中
 const volunteerCount = ref(1); // 默认 1 位志愿者
+const workflowState = ref<any>({}); // 存储工作流状态
 
 // 工单表单相关状态
 const showTicketForm = ref(false);  // 是否显示表单弹窗
@@ -873,7 +874,7 @@ const handleTicketConfirm = () => {
   // 直接显示工单表单，让用户填写详细信息
   ticketFormData.value = {
     title: autoTitle,
-    issueType: workflowState.problem_type || selectedHelpType.value, // 优先使用二级标签 (problem_type)，否则使用一级
+    issueType: workflowState.value.problem_type || selectedHelpType.value, // 优先使用二级标签 (problem_type)，否则使用一级
     platform: ticketPlatform.value, // 默认使用分析出的平台
     briefFacts: ticketFacts.value || ticketReason.value,  // 优先使用事实描述，没有则使用理由
     userRequest: ticketUserAppeal.value || `请求${volunteerCount.value}位志愿者协助`, // 优先使用用户诉求，没有则使用模板
@@ -1281,7 +1282,7 @@ const handleWorkflowSend = async (userMessage: string, additionalState: any = {}
     }
 
     let buffer = ''; // 缓存不完整的 SSE 消息
-    let workflowState: any = {}; // 存储工作流状态
+    workflowState.value = {}; // 重置工作流状态
 
     while (true) {
       const { done, value } = await reader.read();
@@ -1314,7 +1315,7 @@ const handleWorkflowSend = async (userMessage: string, additionalState: any = {}
               // 处理状态数据
               try {
                 const stateData = JSON.parse(content.substring(7));
-                workflowState = { ...workflowState, ...stateData };
+                workflowState.value = { ...workflowState.value, ...stateData };
                 console.log('[Workflow] 收到 State 更新:', stateData);
               } catch (e) {
                 console.error('[Workflow] State 解析失败:', e);
@@ -1335,23 +1336,23 @@ const handleWorkflowSend = async (userMessage: string, additionalState: any = {}
     console.log('[Workflow] 对话完成');
     
     // 检查是否需要显示工单确认弹窗
-    if (workflowState.need_create_ticket === true && !additionalState.user_confirmed_ticket) {
+    if (workflowState.value.need_create_ticket === true && !additionalState.user_confirmed_ticket) {
       console.log('[Ticket] 检测到需要创建工单，显示确认弹窗');
-      ticketReason.value = workflowState.ticket_reason || '检测到您可能需要维权帮助。';
-      ticketFacts.value = workflowState.facts || '';
-      ticketUserAppeal.value = workflowState.user_appeal || '';
-      ticketTitle.value = workflowState.title || '';
-      ticketPlatform.value = workflowState.company || '';
+      ticketReason.value = workflowState.value.ticket_reason || '检测到您可能需要维权帮助。';
+      ticketFacts.value = workflowState.value.facts || '';
+      ticketUserAppeal.value = workflowState.value.user_appeal || '';
+      ticketTitle.value = workflowState.value.title || '';
+      ticketPlatform.value = workflowState.value.company || '';
       
       // 自动选择一级标题
       // 重置为默认值，防止保留上一次的选择
       selectedHelpType.value = '权益咨询';
       
-      if (workflowState.ticket_parent_category) {
-        console.log('[Ticket] 收到后端一级标题:', workflowState.ticket_parent_category);
+      if (workflowState.value.ticket_parent_category) {
+        console.log('[Ticket] 收到后端一级标题:', workflowState.value.ticket_parent_category);
         
         const validTypes = ['权益咨询', '心理疏导', '同行帮助'];
-        const incoming = workflowState.ticket_parent_category;
+        const incoming = workflowState.value.ticket_parent_category;
         
         // 1. 精确匹配
         let match = validTypes.find(t => t === incoming);
