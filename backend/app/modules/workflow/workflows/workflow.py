@@ -130,6 +130,30 @@ async def save_to_working_memory_node(state: WorkflowState) -> Dict[str, Any]:
         if not conversation_id:
             return {"working_memory_saved": False}
         
+        # 0. 防止重复执行 (Graph 可能会因多路汇聚触发多次)
+        if state.get("working_memory_saved"):
+            logger.info("⚠️ Working Memory 已保存，跳过重复执行")
+            return {}
+
+        # 1. 检查 Redis 中是否已存在本轮对话 (防止并发写入导致的 U,A,U,A)
+        try:
+            existing_messages = await working_memory.get_messages(conversation_id)
+            if existing_messages and len(existing_messages) >= 2:
+                last_msg = existing_messages[-1]
+                second_last = existing_messages[-2]
+                
+                # 检查最近两条是否正好是当前要保存的 User 和 Assistant
+                is_duplicate_turn = (
+                    second_last.get("role") == "user" and second_last.get("content") == user_input and
+                    last_msg.get("role") == "assistant" and last_msg.get("content") == llm_response
+                )
+                
+                if is_duplicate_turn:
+                    logger.info("⚠️ 检测到本轮对话已存在于 Redis，跳过保存")
+                    return {"working_memory_saved": True}
+        except Exception as e:
+            logger.warning(f"⚠️ 检查重复对话失败（非致命）: {e}")
+        
         # 保存用户消息
         if user_input:
             await working_memory.save_message(

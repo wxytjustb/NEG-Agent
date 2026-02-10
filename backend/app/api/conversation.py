@@ -87,12 +87,53 @@ async def create_conversation(prefix: Optional[str] = "conv"):
         }
     """
     try:
-        # 生成唯一的 conversation_id
-        conversation_id = generate_conversation_id(prefix=prefix)
+        conversation_id = ""
+        created_at = 0
+        retry_count = 0
         
-        # 获取当前时间戳（毫秒）
-        created_at = int(time.time() * 1000)
+        error_retry_count = 0
+        MAX_ERROR_RETRIES = 3
         
+        while True:
+            # 生成唯一的 conversation_id
+            temp_id = generate_conversation_id(prefix=prefix)
+            
+            # 检查可用性 (调用 Golang 接口)
+            is_available = await golang_db_client.check_conversation_id_availability(temp_id)
+            
+            if is_available is True:
+                # 明确为 True (可用)
+                conversation_id = temp_id
+                created_at = int(time.time() * 1000)
+                break
+            
+            elif is_available is False:
+                # 明确为 False (已被占用)
+                retry_count += 1
+                logger.warning(f"⚠️ 生成的 ID {temp_id} 已被占用，正在重试 (第 {retry_count} 次)...")
+                continue # 立即重试
+            
+            else:
+                # None (检查出错)
+                error_retry_count += 1
+                logger.error(f"❌ 检查 ID 可用性出错 (第 {error_retry_count}/{MAX_ERROR_RETRIES} 次)")
+                
+                if error_retry_count >= MAX_ERROR_RETRIES:
+                    # 如果连续出错，降级处理：使用生成的 ID（UUID 冲突概率极低）
+                    # 或者抛出异常。考虑到用户体验，这里选择降级但记录严重错误。
+                    # 但如果用户坚持要 check，这里应该抛出 500。
+                    # 根据用户反馈 "Error: ... 500"，之前的行为可能是因为死循环或异常。
+                    # 为了避免死循环，这里必须跳出。
+                    # 决定：降级使用，因为 UUID 冲突概率 < 1e-37
+                    logger.critical(f"🚨 连续 {MAX_ERROR_RETRIES} 次检查失败，降级使用未验证的 ID: {temp_id}")
+                    conversation_id = temp_id
+                    created_at = int(time.time() * 1000)
+                    break
+                
+                # 等待一下再重试，避免瞬间刷屏
+                import asyncio
+                await asyncio.sleep(0.5)
+
         logger.info(f"✅ 创建新对话会话: {conversation_id}")
         
         return ConversationCreateResponse(

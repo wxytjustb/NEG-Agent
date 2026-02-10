@@ -152,6 +152,11 @@ async def save_memory_node(state: WorkflowState) -> Dict[str, Any]:
                 "memory_saved": False,
                 "saved_message_ids": []
             }
+            
+        # 0. 防止重复执行 (Graph 可能会因多路汇聚触发多次)
+        if state.get("memory_saved"):
+            logger.info("⚠️ ChromaDB 记忆已保存，跳过重复执行")
+            return {}
         
         if not user_input and not llm_response:
             return {

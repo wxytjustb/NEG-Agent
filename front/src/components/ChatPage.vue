@@ -372,6 +372,7 @@ interface ChatMessage {
 
 // Session token management
 const sessionToken = ref<string>('');
+const accessToken = ref<string>('');  // 新增：Access Token
 const conversationId = ref<string>('');  // 新增：对话ID
 const isInitializing = ref(false);
 
@@ -1246,7 +1247,8 @@ const handleWorkflowSend = async (userMessage: string, additionalState: any = {}
   try {
     console.log('[Workflow] 调用 /api/agent/chat 流式接口...');
     
-    const urlWithToken = `/api/agent/chat?session_token=${sessionToken.value}`;
+    // 拼接 session_token 和 access_token (作为后备验证)
+    const urlWithToken = `/api/agent/chat?session_token=${sessionToken.value}&access_token=${accessToken.value}`;
     
     // 构建请求体，支持额外的 state 传递
     const requestBody: any = {
@@ -1464,6 +1466,9 @@ const initializeSession = async () => {
       alert('未找到用户认证信息\n请通过 URL 参数传递 token:\nhttp://localhost:5173/?access_token=your_token');
       return;
     }
+    
+    // 保存 access_token 到 reactive 变量
+    accessToken.value = ACCESS_TOKEN;
 
     // 2. 检查缓存的 session 是否属于当前 access_token
     const cachedAccessToken = localStorage.getItem('access_token');

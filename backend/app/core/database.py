@@ -189,6 +189,51 @@ class GolangDatabaseClient:
             logger.error(f"❌ 调用 Golang API 失败: {e}", exc_info=True)
             return []
 
+    async def check_conversation_id_availability(
+        self,
+        conversation_id: str
+    ) -> Optional[bool]:
+        """
+        检查 conversation_id 是否可用（调用 Golang 接口）
+        
+        Args:
+            conversation_id: 待检查的对话ID
+            
+        Returns:
+            bool: True 表示可用（未使用）
+            bool: False 表示不可用（已使用）
+            None: 表示检查过程出错（如网络错误）
+        """
+        try:
+            url = f"{self.base_url}/app/conversation/check"
+            params = {"conversationId": conversation_id}
+            
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.get(url, params=params)
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    # Golang 返回: {"code": 0, "data": {"used": true/false}, "msg": "..."}
+                    if result.get("code") == 0:
+                        data = result.get("data", {})
+                        used = data.get("used", False)
+                        
+                        if used:
+                            logger.warning(f"⚠️ Conversation ID 已被占用: {conversation_id}")
+                            return False  # 已使用
+                        else:
+                            return True   # 可用
+                    else:
+                        logger.error(f"❌ 检查 ID 失败: code={result.get('code')}, msg={result.get('msg')}")
+                        return None # 逻辑错误
+                else:
+                    logger.error(f"❌ 检查 ID HTTP 失败: status={response.status_code}")
+                    return None # 网络/服务错误
+                    
+        except Exception as e:
+            logger.error(f"❌ 检查 ID 异常: {e}", exc_info=True)
+            return None # 异常
+
 
 # 全局实例
 golang_db_client = GolangDatabaseClient()

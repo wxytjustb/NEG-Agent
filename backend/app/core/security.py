@@ -75,13 +75,15 @@ async def verify_token_with_go_server(token: str) -> dict:
 
 async def get_current_session(
     session_token: str = Query(None, description="Session Token via Query Param"),
+    access_token: str = Query(None, description="Access Token via Query Param"),
     header_token: str = Security(api_key_header)
 ) -> dict:
     """
     获取当前会话依赖 (用于已初始化的会话)
     优先使用 Query Param (session_token=xxx),其次使用 Header (Authorization: xxx)
+    如果 session_token 无效但提供了 access_token，尝试重新初始化会话
     """
-    from app.core.session_token import get_session, refresh_session
+    from app.core.session_token import get_session, refresh_session, create_or_get_session
     
     token = session_token
     
@@ -93,18 +95,32 @@ async def get_current_session(
         else:
             token = header_token
             
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated - session token required",
-        )
-    
-    # 从 Redis 获取会话信息
-    session_data = await get_session(token)
+    # 尝试验证 Session Token
+    session_data = None
+    if token:
+        session_data = await get_session(token)
+        
+    # 如果 Session 无效，但在 access_token 存在，尝试重新认证
+    if not session_data and access_token:
+        try:
+            logger.info("Session token missing or invalid, attempting re-auth via access_token")
+            # 验证 access_token
+            user_info = await verify_token_with_go_server(access_token)
+            user_info['access_token'] = access_token
+            
+            # 创建新 Session
+            new_session_token = await create_or_get_session(user_info)
+            session_data = await get_session(new_session_token)
+            token = new_session_token
+            logger.info(f"Session re-initialized via access_token for user {user_info.get('id')}")
+        except Exception as e:
+            logger.warning(f"Failed to re-initialize session via access_token: {e}")
+            # Fall through to error
+            
     if not session_data:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired session",
+            detail="Invalid or expired session token",
         )
     
     # 刷新会话过期时间

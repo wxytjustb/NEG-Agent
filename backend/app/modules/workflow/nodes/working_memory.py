@@ -87,7 +87,14 @@ class WorkingMemory:
                     logger.warning(f"⚠️ Redis 数据格式异常，重新初始化")
                     messages = []
             
-            # 2. 构造新消息
+            # 2. 检查是否重复（防止同一条消息被重复保存）
+            if messages:
+                last_msg = messages[-1]
+                if last_msg.get("role") == role and last_msg.get("content") == content:
+                    logger.warning(f"⚠️ 检测到重复消息，跳过保存 | session={session_token[:20]}... | role={role}")
+                    return True
+
+            # 3. 构造新消息
             new_message = {
                 "role": role,
                 "content": content,

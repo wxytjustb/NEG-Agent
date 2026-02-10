@@ -7,6 +7,7 @@ from app.modules.workflow.core.state import WorkflowState
 from app.core.database import golang_db_client
 from lmnr import observe
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,11 @@ async def save_database_node(state: WorkflowState) -> Dict[str, Any]:
             logger.warning("⚠️ 缺少 conversation_id，跳过数据库保存")
             return {"database_saved": False}
         
+        # 0. 防止重复执行 (Graph 可能会因多路汇聚触发多次)
+        if state.get("database_saved"):
+            logger.info("⚠️ MySQL 数据库已保存，跳过重复执行")
+            return {}
+        
         if not access_token:
             logger.warning("⚠️ 缺少 access_token，跳过数据库保存")
             return {"database_saved": False}
@@ -63,7 +69,7 @@ async def save_database_node(state: WorkflowState) -> Dict[str, Any]:
         
         # 保存用户消息
         if user_input:
-            user_msg_id = saved_message_ids[0] if len(saved_message_ids) > 0 else f"{conversation_id}_user"
+            user_msg_id = saved_message_ids[0] if len(saved_message_ids) > 0 else f"{conversation_id}_{int(time.time()*1000)}_user"
             
             success = await golang_db_client.save_message(
                 conversation_id=conversation_id,
@@ -76,7 +82,7 @@ async def save_database_node(state: WorkflowState) -> Dict[str, Any]:
         
         # 保存助手消息
         if llm_response:
-            assistant_msg_id = saved_message_ids[1] if len(saved_message_ids) > 1 else f"{conversation_id}_assistant"
+            assistant_msg_id = saved_message_ids[1] if len(saved_message_ids) > 1 else f"{conversation_id}_{int(time.time()*1000)}_assistant"
             
             success = await golang_db_client.save_message(
                 conversation_id=conversation_id,
