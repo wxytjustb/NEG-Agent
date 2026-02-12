@@ -25,6 +25,17 @@ async def async_ticket_summary_node(state: WorkflowState) -> Dict[str, Any]:
         user_id = state.get("user_id")
         access_token = state.get("access_token")
         
+        # 获取意图信息
+        intent = state.get("intent", "")
+        intent_confidence = state.get("intent_confidence", 0.0)
+        intents = state.get("intents", [])
+        
+        intent_info = ""
+        if intent:
+            intent_info = f"主要意图：{intent} (置信度: {intent_confidence:.0%})"
+            if intents and len(intents) > 1:
+                intent_info += f", 次要意图：{intents[1].get('intent')} (置信度: {intents[1].get('confidence'):.0%})"
+        
         logger.info(f"🚀 [ticket_summary] 开始执行自动总结 (Conversation: {conversation_id})")
         
         # 调用总结服务
@@ -33,7 +44,8 @@ async def async_ticket_summary_node(state: WorkflowState) -> Dict[str, Any]:
             text=user_input,
             user_id=str(user_id) if user_id else None,
             conversation_id=conversation_id,
-            access_token=access_token
+            access_token=access_token,
+            intent_info=intent_info
         )
         
         logger.info(f"✅ [ticket_summary] 总结完成: {ticket.title}")

@@ -10,61 +10,9 @@ from pydantic import SecretStr
 from app.schemas.ticket_schema import AppTicket
 from app.services.ticket_service import ticket_service
 from app.services.redis_service import redis_service
+from app.utils.prompt import get_ticket_summary_prompt
 
 logger = logging.getLogger(__name__)
-
-# 工单总结提示词
-TICKET_SUMMARY_PROMPT = """
-你是一个专业的工单处理助手。请根据以下信息（对话历史、当前输入、用户画像、工单类别），提取关键信息并生成工单数据。
-
-## 上下文信息
-1. **当前用户输入**:
-{current_input}
-
-2. **对话历史**:
-{history}
-
-3. **用户画像**:
-{user_profile}
-
-4. **可选工单类别**:
-{ticket_categories}
-
-## 核心原则：绝对忠实于事实，严禁捏造，下面所罗列的东西都是举例不是事实，一切都要按照用户所说的实情来总结。
-1. **仅依据对话内容**：你总结的所有信息必须能在用户提供的文本中找到明确依据。
-2. **区分事实来源**：只有【用户】说的话才是案件事实。
-3. **缺失即留空**：如果输入中未提及时间、金额、平台等具体信息，**绝对不要捏造或推测**，对应字段必须填 null。
-4. **禁止脑补细节**：不要补充任何用户没说过的背景故事或细节。
-5. **严禁抄袭示例**：下方的“返回示例”仅供格式参考，用户说了什么就总结什么。
-
-## 提取字段要求
-请提取以下字段并返回 JSON 格式：
-1. **issueType**: 工单二级分类 (必须是【可选工单类别】中列出的名称。请仔细分析用户问题，必须属于提供的分类之一)
-2. **platform**: 涉及平台 (如果没有明确提及则填 null)
-3. **briefFacts**: 事实简述 (客观描述发生了什么，包含时间、地点、人物、起因、经过、结果。整合所有细节，保持客观)
-4. **title**: 工单标题 (格式：核心问题摘要，10字以内，禁止包含平台名称)
-5. **userRequest**: 用户诉求 (用户希望得到什么帮助或结果)
-6. **peopleNeedingHelp**: 涉及人数 (如果是单人填1，多人填具体数字或描述)
-
-## 返回示例 (仅作格式参考，内容请忽略)
-{{
-    "issueType": "示例分类",
-    "platform": "示例平台",
-    "briefFacts": "用户描述的实际情况...",
-    "title": "示例标题",
-    "userRequest": "用户的实际诉求...",
-    "peopleNeedingHelp": 1
-}}
-
-## 极简输入处理
-如果用户只说了“人工”、“投诉”、“帮帮我”等简短词汇，没有提供具体事实：
-- briefFacts 填 null 或 "用户仅表达了诉求，未提供细节"
-- issueType 尝试推断，无法推断填 null
-- 其他字段按需填 null
-
-请返回纯 JSON 格式，不要包含 Markdown 格式标记（如 ```json）。
-如果没有相关信息，请对应字段填 null。
-"""
 
 class TicketSummaryService:
     """工单总结与创建服务"""
@@ -119,7 +67,8 @@ class TicketSummaryService:
         text: Optional[str] = None, 
         user_id: Optional[str] = None,
         conversation_id: Optional[str] = None,
-        access_token: Optional[str] = None
+        access_token: Optional[str] = None,
+        intent_info: Optional[str] = None
     ) -> AppTicket:
         """
         根据文本总结生成工单预览
@@ -127,6 +76,7 @@ class TicketSummaryService:
         :param user_id: 用户ID
         :param conversation_id: 会话ID
         :param access_token: 用户 token (用于获取工单类别)
+        :param intent_info: 意图识别结果信息
         :return: AppTicket 对象 (仅包含总结字段)
         """
         print(f"\n🤖 [Ticket Summary Service] Start summarizing... Text: {text[:20] if text else 'None'}...")
@@ -202,8 +152,11 @@ class TicketSummaryService:
             # 3. 获取用户画像 (当前仅使用 ID，后续可扩展)
             user_profile = f"用户ID: {user_id}" if user_id else "未知用户"
 
+            # 处理意图信息
+            current_intent_info = intent_info if intent_info else "未提供意图信息"
+
             # 构建 Prompt
-            prompt = ChatPromptTemplate.from_template(TICKET_SUMMARY_PROMPT)
+            prompt = ChatPromptTemplate.from_template(get_ticket_summary_prompt())
             chain = prompt | self.llm | JsonOutputParser()
             
             # 处理空文本情况
@@ -214,6 +167,7 @@ class TicketSummaryService:
             print(f"History Length: {len(history_text)}")
             print(f"Categories: {ticket_categories[:100]}...")
             print(f"User Profile: {user_profile}")
+            print(f"Intent Info: {current_intent_info}")
             print(f"Input Text: {input_text}")
             print("-" * 80 + "\n")
 
@@ -222,6 +176,7 @@ class TicketSummaryService:
                 "current_input": input_text,
                 "user_profile": user_profile,
                 "ticket_categories": ticket_categories,
+                "intent_info": current_intent_info,
             })
             
             # 打印 LLM 原始输出
