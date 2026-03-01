@@ -32,7 +32,6 @@ class Settings(BaseSettings):
     LLM_API_BASE_URL: Optional[str] = None
     LLM_MODEL: str = "gpt-3.5-turbo"
     
- 
 
     # Golang Server Auth Configuration
     GOLANG_API_BASE_URL: str = "https://app-api.roky.work"
@@ -59,7 +58,6 @@ class Settings(BaseSettings):
     LAMINAR_HTTP_PORT: int = 8080  # HTTP 端口
     LAMINAR_GRPC_PORT: int = 8081  # gRPC 端口
     LAMINAR_ENABLED: bool = True  # 是否启用
-    LAMINAR_ENVIRONMENT: str = "development"  # 环境名称
 
     # ChromaDB 配置（向量数据库）
     CHROMA_HOST: str = "localhost"  # ChromaDB 服务器地址
